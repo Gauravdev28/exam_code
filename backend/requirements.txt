@@ -1,0 +1,21 @@
+Django>=5.0,<5.2
+djangorestframework>=3.14.0
+django-cors-headers>=4.3.1
+djangorestframework-simplejwt>=5.3.1
+channels>=4.0.0
+daphne>=4.1.0
+channels-redis>=4.2.0
+celery>=5.3.6
+redis>=5.0.1
+PyMySQL>=1.1.0
+python-dotenv>=1.0.1
+argon2-cffi>=23.1.0
+pandas>=2.2.0
+openpyxl>=3.1.2
+reportlab>=4.1.0
+requests>=2.31.0
+
+# Testing
+pytest>=8.0.0
+pytest-django>=4.8.0
+pytest-asyncio>=0.23.5

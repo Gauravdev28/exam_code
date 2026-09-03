@@ -1,0 +1,141 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: codeguard_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secure_password
+      MYSQL_DATABASE: codeguard_db
+      MYSQL_USER: codeguard_user
+      MYSQL_PASSWORD: codeguard_secure_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "codeguard_user", "-pcodeguard_secure_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - codeguard_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: codeguard_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - codeguard_network
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    container_name: codeguard_backend
+    restart: unless-stopped
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./backend:/app/backend
+      - ./.env:/app/.env
+    ports:
+      - "8000:8000"
+    environment:
+      - DJANGO_SETTINGS_MODULE=codeguard.settings.development
+      - DB_HOST=db
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - USE_SQLITE_DEV=False
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - codeguard_network
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    container_name: codeguard_celery_worker
+    restart: unless-stopped
+    command: celery -A codeguard worker --loglevel=info
+    volumes:
+      - ./backend:/app/backend
+      - ./.env:/app/.env
+    environment:
+      - DJANGO_SETTINGS_MODULE=codeguard.settings.development
+      - DB_HOST=db
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - USE_SQLITE_DEV=False
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - codeguard_network
+
+  celery_beat:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    container_name: codeguard_celery_beat
+    restart: unless-stopped
+    command: celery -A codeguard beat --loglevel=info
+    volumes:
+      - ./backend:/app/backend
+      - ./.env:/app/.env
+    environment:
+      - DJANGO_SETTINGS_MODULE=codeguard.settings.development
+      - DB_HOST=db
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - USE_SQLITE_DEV=False
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - codeguard_network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+    container_name: codeguard_frontend
+    restart: unless-stopped
+    volumes:
+      - ./frontend:/app/frontend
+      - /app/frontend/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000/api/v1
+      - VITE_WS_BASE_URL=ws://localhost:8000/ws
+    depends_on:
+      - backend
+    networks:
+      - codeguard_network
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  codeguard_network:
+    driver: bridge

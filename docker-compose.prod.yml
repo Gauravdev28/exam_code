@@ -1,0 +1,93 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: codeguard_db_prod
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql_prod_data:/var/lib/mysql
+    networks:
+      - codeguard_prod_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: codeguard_redis_prod
+    restart: always
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-secure_redis_pass}
+    volumes:
+      - redis_prod_data:/data
+    networks:
+      - codeguard_prod_network
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    container_name: codeguard_backend_prod
+    restart: always
+    command: daphne -b 0.0.0.0 -p 8000 codeguard.asgi:application
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+    networks:
+      - codeguard_prod_network
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    container_name: codeguard_celery_worker_prod
+    restart: always
+    command: celery -A codeguard worker --loglevel=warning --concurrency=4
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+    networks:
+      - codeguard_prod_network
+
+  celery_beat:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    container_name: codeguard_celery_beat_prod
+    restart: always
+    command: celery -A codeguard beat --loglevel=warning
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+    networks:
+      - codeguard_prod_network
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: codeguard_nginx_prod
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/frontend/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./backend/staticfiles:/app/staticfiles
+      - ./backend/media:/app/media
+    depends_on:
+      - backend
+    networks:
+      - codeguard_prod_network
+
+volumes:
+  mysql_prod_data:
+  redis_prod_data:
+
+networks:
+  codeguard_prod_network:
+    driver: bridge
