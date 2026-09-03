@@ -302,15 +302,11 @@ class LiveInterventionService:
         if not attempt:
             raise NotFound("Test attempt not found.")
 
-        if attempt.status != AttemptStatus.IN_PROGRESS:
-            raise DRFValidationError({"status": f"Cannot pause attempt in status {attempt.status}."})
+        # Delegate authoritative pause eligibility checks to Phase 5 AttemptTimerService
+        AttemptTimerService.authorize_pause(attempt=attempt, actor=proctor)
 
         now = timezone.now()
         assessment = attempt.assessment
-
-        # Assessment end boundary check: cannot pause if assessment schedule has ended
-        if assessment.end_datetime and now >= assessment.end_datetime:
-            raise DRFValidationError({"schedule": "Cannot pause attempt: assessment end datetime has passed."})
 
         # Single active pause check:
         active_pause = cls.get_active_pause(attempt)
@@ -392,13 +388,12 @@ class LiveInterventionService:
         now = timezone.now()
         pause_duration_seconds = max(1, int((now - active_pause.issued_at).total_seconds()))
 
-        # Extend expires_at by pause duration, strictly capped at assessment.end_datetime
-        if attempt.expires_at:
-            extended_expiry = attempt.expires_at + timedelta(seconds=pause_duration_seconds)
-            if attempt.assessment.end_datetime and extended_expiry > attempt.assessment.end_datetime:
-                extended_expiry = attempt.assessment.end_datetime
-            attempt.expires_at = extended_expiry
-            attempt.save(update_fields=['expires_at', 'updated_at'])
+        # DELEGATE AUTHORITATIVE TIMER EXTENSION TO PHASE 5 ATTEMPTTIMERSERVICE
+        AttemptTimerService.apply_authorized_pause(
+            attempt=attempt,
+            pause_duration_seconds=pause_duration_seconds,
+            actor=proctor
+        )
 
         resume_event = ProctorIntervention.objects.create(
             attempt=attempt,

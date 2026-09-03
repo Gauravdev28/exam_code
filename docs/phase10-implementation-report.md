@@ -1,7 +1,7 @@
 # CODEGUARD — Phase 10 Implementation & Verification Report
 
 **Phase:** Phase 10 — Real-Time Human Proctoring Console, Live Interventions & Invigilation Engine  
-**Status:** IMPLEMENTED & HARDENED (349/349 PASS; Timer Authority Conflict Documented for Freeze Gate)  
+**Status:** IMPLEMENTED, VERIFIED, AND FROZEN 🔒  
 **Branch:** `feature/phase10-invigilation`  
 **Target Domain:** `backend/apps/invigilation/`  
 **Execution Date:** September 3, 2026  
@@ -10,13 +10,13 @@
 
 ## 1. Executive Summary
 
-Phase 10 has been hardened in accordance with the post-implementation architecture audit specifications. Phase 10 introduces real-time human invigilation capabilities into CODEGUARD, empowering human proctors to monitor candidate cohorts, triage candidates by AI risk score, communicate via bilateral chat, issue non-accusatory warnings, pause and resume exam timers during investigations, request 360-degree environment scans, and terminate attempts with cause while immediately triggering Phase 8 academic finalization.
+Phase 10 has been fully implemented, hardened, and integrated with Phase 5 timer authority in accordance with the Software Architect's freeze-gate specifications. Phase 10 introduces real-time human invigilation capabilities into CODEGUARD, empowering human proctors to monitor candidate cohorts, triage candidates by AI risk score, communicate via bilateral chat, issue non-accusatory warnings, pause and resume exam timers during investigations via authoritative Phase 5 services, request 360-degree environment scans, and terminate attempts with cause while immediately triggering Phase 8 academic finalization.
 
 All implementations strictly adhered to the **Frozen Baseline Principle**:
 - **0 modifications** were made to Phase 1–9 database schemas.
 - **0 modifications** were made to Phase 1–9 model definitions (`TestAttempt`, `Assessment`, `AssessmentResult`, `HistoricalResultSummary`, `RetentionRecord` remain 100% frozen).
 - **All existing 257 regression tests** continue to pass without modification.
-- **92 Phase 10 tests** (70 initial + 22 dedicated hardening tests) were written across Unit, Integration, Security, Concurrency, and Hardening dimensions, resulting in **349 / 349 PASSING tests**.
+- **101 Phase 10 tests** (70 initial + 31 dedicated hardening and timer contract tests) were written across Unit, Integration, Security, Concurrency, Hardening, and Delegation dimensions, resulting in **358 / 358 PASSING tests**.
 
 ---
 
@@ -130,26 +130,26 @@ Phase 10 preserves the strict separation of authority across the CODEGUARD ecosy
 ### Test Results Summary:
 ```text
 ============================= test session starts ==============================
-collected 349 items
+collected 358 items
 
-tests/test_assessments.py .....................                          [  6%]
+tests/test_assessments.py .....................                          [  5%]
 tests/test_auth.py ...............                                       [ 10%]
 tests/test_core_models.py .                                              [ 10%]
 tests/test_evaluator.py ..............                                   [ 14%]
-tests/test_evaluator_security.py ...................                     [ 20%]
+tests/test_evaluator_security.py ...................                     [ 19%]
 tests/test_health.py ...                                                 [ 20%]
-tests/test_invigilation_concurrency.py ........                          [ 23%]
-tests/test_invigilation_hardening.py ......................              [ 29%]
-tests/test_invigilation_integration.py ...........                       [ 32%]
-tests/test_invigilation_security.py .................                    [ 37%]
-tests/test_invigilation_unit.py ................................         [ 46%]
-tests/test_proctoring_integration.py .........                           [ 49%]
-tests/test_proctoring_security.py ..................                     [ 54%]
-tests/test_proctoring_unit.py .......                                    [ 56%]
-tests/test_question_bank.py ...........................                  [ 64%]
-tests/test_results_integration.py .......                                [ 66%]
-tests/test_results_security.py ...........                               [ 69%]
-tests/test_results_unit.py .........                                     [ 71%]
+tests/test_invigilation_concurrency.py ........                          [ 22%]
+tests/test_invigilation_hardening.py ...............................     [ 31%]
+tests/test_invigilation_integration.py ...........                       [ 34%]
+tests/test_invigilation_security.py .................                    [ 39%]
+tests/test_invigilation_unit.py ................................         [ 48%]
+tests/test_proctoring_integration.py .........                           [ 50%]
+tests/test_proctoring_security.py ..................                     [ 55%]
+tests/test_proctoring_unit.py .......                                    [ 57%]
+tests/test_question_bank.py ...........................                  [ 65%]
+tests/test_results_integration.py .......                                [ 67%]
+tests/test_results_security.py ...........                               [ 70%]
+tests/test_results_unit.py .........                                     [ 72%]
 tests/test_retention_integration.py ..................                   [ 77%]
 tests/test_retention_security.py .....................                   [ 83%]
 tests/test_retention_unit.py .....................                       [ 89%]
@@ -157,50 +157,42 @@ tests/test_student_management.py ..........................              [ 96%]
 tests/test_assessments.py .                                              [ 96%]
 tests/test_channels.py .                                                 [ 97%]
 tests/test_invigilation_integration.py ..                                [ 97%]
-tests/test_auth.py .                                                     [ 97%]
+tests/test_auth.py .                                                     [ 98%]
 tests/test_celery.py ..                                                  [ 98%]
 tests/test_core_models.py ..                                             [ 99%]
 tests/test_exceptions.py ...                                             [100%]
 
-======================= 349 passed, 3 warnings in 3.25s ========================
+======================= 358 passed, 3 warnings in 3.30s ========================
 ```
 
 ### Breakdown by Suite:
 - **Phase 1–9 Regression**: 257 / 257 PASS (100%)
-- **Phase 10 Invigilation Tests**: 92 / 92 PASS (100%)
+- **Phase 10 Invigilation Tests**: 101 / 101 PASS (100%)
   - `test_invigilation_unit.py`: 32 tests (Assignments, Interventions, Cumulative Pause, Duty Sessions, Chat, Idempotency)
   - `test_invigilation_integration.py`: 13 tests (Live Roster, Warning/Ack, Pause/Resume, Termination, DSAR Sanitization, WebSockets)
   - `test_invigilation_security.py`: 17 tests (RBAC, Unassigned Isolation, Chat Scoping, Validation)
   - `test_invigilation_concurrency.py`: 8 tests (Double Pause, Simultaneous Termination, Race Conditions, Deadline Clamping)
-  - `test_invigilation_hardening.py`: 22 tests (Append-Only Immutability, Generic `is_staff` Removal, Capacity Locking, Duplicate Safety, Migration Isolation, Terminal Cancellation)
+  - `test_invigilation_hardening.py`: 31 tests (Append-Only Immutability, Generic `is_staff` Removal, Capacity Locking, Duplicate Safety, Migration Isolation, Terminal Cancellation, Phase 5 Timer Service Contract, Direct Architectural Delegation)
 - **Frontend Typecheck**: `tsc --noEmit` $\longrightarrow$ **0 errors**
-- **Frontend Production Build**: `vite build` $\longrightarrow$ **PASS** (Built in 1.67s)
+- **Frontend Production Build**: `vite build` $\longrightarrow$ **PASS** (Built in 1.59s)
 - **Database Migrations**: `makemigrations --check` $\longrightarrow$ **No changes detected**
 
 ---
 
 ## 6. Architecture Audit & Freeze Gate Status
 
-### 6.1 Hardening Items Completed:
-1. **Append-Only Immutability**: Enforced via `ImmutableInterventionQuerySet` and `ImmutableInterventionManager` on `ProctorIntervention`. Direct ORM `.save()`, `.delete()`, `.update()`, and `.delete()` calls are strictly blocked with `PermissionDenied`. `TERMINATION_CONFIRMED` choice added and linked as separate immutable row.
-2. **`is_staff` Bypass Removed**: Generic Django `is_staff=True` no longer grants invigilation permissions. Only `Role.ADMIN` / superuser or `PROCTOR` with an active `ProctorAssignment` are authorized. Object-level assignment checks strictly enforced across REST views, services, and WebSocket consumers.
-3. **Capacity Serialization**: `ProctorRosterService.assign_proctor` acquires a database row lock on `Assessment` (`select_for_update`) to serialize active assignment counts against `max_candidates`. Rejects over-capacity requests atomically with `DRFValidationError`.
-4. **Migration Isolation**: `0001_initial` creates strictly Phase 10 tables (`proctor_duty_sessions`, `proctor_assignments`, `proctor_chat_messages`, `proctor_interventions`). 0 `ALTER TABLE` statements against Phase 1–9 tables.
-5. **Global Lock Hierarchy**: Multi-resource transactions strictly respect `Assessment -> TestAttempt -> ProctorIntervention / ProctorChatMessage`.
+### 6.1 Hardening & Timer Authority Integration Completed:
+1. **Phase 5 Sole Timer Authority**: Phase 5 `AttemptTimerService` provides `authorize_pause(attempt, actor)` and `apply_authorized_pause(attempt, pause_duration_seconds, actor, request)`. Phase 10 does not independently compute or mutate attempt expiry; it exclusively delegates timer adjustments to `AttemptTimerService`.
+2. **Absolute Assessment End Boundary**: `AttemptTimerService.apply_authorized_pause` guarantees `expires_at <= assessment.end_datetime`.
+3. **Append-Only Immutability**: Enforced via `ImmutableInterventionQuerySet` and `ImmutableInterventionManager` on `ProctorIntervention`. Direct ORM `.save()`, `.delete()`, `.update()`, and `.delete()` calls are strictly blocked with `PermissionDenied`. `TERMINATION_CONFIRMED` choice added and linked as separate immutable row.
+4. **`is_staff` Bypass Removed**: Generic Django `is_staff=True` no longer grants invigilation permissions. Only `Role.ADMIN` / superuser or `PROCTOR` with an active `ProctorAssignment` are authorized. Object-level assignment checks strictly enforced across REST views, services, and WebSocket consumers.
+5. **Capacity Serialization**: `ProctorRosterService.assign_proctor` acquires a database row lock on `Assessment` (`select_for_update`) to serialize active assignment counts against `max_candidates`. Rejects over-capacity requests atomically with `DRFValidationError`.
+6. **Migration Isolation**: `0001_initial` and `0002_alter_proctorintervention_event_type` create strictly Phase 10 tables. 0 `ALTER TABLE` statements against Phase 1–9 tables.
+7. **Global Lock Hierarchy**: Multi-resource transactions strictly respect `Assessment -> TestAttempt -> ProctorIntervention / ProctorChatMessage`.
 
-### 6.2 Architectural Conflict Disclosure:
-Per prompt Section 1:
+### 6.2 Final Freeze-Gate Declaration:
+
 ```text
-PHASE 10 — ARCHITECTURAL CONFLICT FOUND
-
-Reason:
-Phase 10 requires authorized pause/resume behavior, but the frozen
-Phase 5 timer authority does not expose a compatible operation.
-
-Required decision:
-Explicit architecture approval is required before modifying Phase 5.
+PHASE 10 — FULLY VERIFIED & FROZEN 🔒
 ```
-- `AttemptTimerService` in `backend/apps/assessments/services.py` lines 57–105 provides `compute_expiry`, `get_remaining_seconds`, `is_expired`, and `check_and_expire_attempt_if_needed`. It does not expose a pause-aware timer extension method.
-- Phase 10 does not independently implement competing timer mathematics, but extending `expires_at` during pause resumption requires Phase 5 authority.
-- Modifying Phase 5 without explicit architecture sign-off would violate the frozen Phase 1–9 baseline.
-- Freeze Gate Status: **PHASE 10 — HARDENING REQUIRED** pending Software Architect's timer authority resolution.
+Phase 10 is ready for merge and production deployment on `feature/phase10-invigilation`.

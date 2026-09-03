@@ -496,3 +496,172 @@ class TestPhase10Hardening:
         att_roster = next(r for r in roster if r["attempt_id"] == str(att.id))
         assert att_roster["remaining_seconds"] == remaining
 
+    # =========================================================================
+    # 7. PHASE 5 TIMER SERVICE AUTHORITATIVE CONTRACT TESTS
+    # =========================================================================
+
+    def test_phase5_authorized_pause_operation_works(self, hardening_fixture):
+        from apps.assessments.services import AttemptTimerService
+        e = hardening_fixture
+        att = e["att1"]
+        original_expiry = att.expires_at
+
+        # Apply 120s pause
+        updated = AttemptTimerService.apply_authorized_pause(
+            attempt=att,
+            pause_duration_seconds=120,
+            actor=e["proctorA"]
+        )
+        assert updated.expires_at == original_expiry + timedelta(seconds=120)
+
+        # Verify persisted in database
+        att.refresh_from_db()
+        assert att.expires_at == original_expiry + timedelta(seconds=120)
+
+    def test_phase5_unauthorized_pause_rejected_on_not_started(self, hardening_fixture):
+        from apps.assessments.services import AttemptTimerService
+        e = hardening_fixture
+        att = e["att1"]
+        att.status = AttemptStatus.NOT_STARTED
+        att.save(update_fields=['status'])
+
+        with pytest.raises(DRFValidationError) as exc:
+            AttemptTimerService.authorize_pause(att, actor=e["proctorA"])
+        assert "Cannot pause attempt in status NOT_STARTED" in str(exc.value)
+
+    def test_phase5_pause_cannot_operate_on_submitted_attempt(self, hardening_fixture):
+        from apps.assessments.services import AttemptTimerService
+        e = hardening_fixture
+        att = e["att1"]
+        att.status = AttemptStatus.SUBMITTED
+        att.save(update_fields=['status'])
+
+        with pytest.raises(DRFValidationError) as exc1:
+            AttemptTimerService.authorize_pause(att, actor=e["proctorA"])
+        assert "Cannot pause attempt in status SUBMITTED" in str(exc1.value)
+
+        with pytest.raises(DRFValidationError) as exc2:
+            AttemptTimerService.apply_authorized_pause(att, pause_duration_seconds=60, actor=e["proctorA"])
+        assert "Cannot apply pause to attempt in status SUBMITTED" in str(exc2.value)
+
+    def test_phase5_pause_cannot_operate_on_cancelled_attempt(self, hardening_fixture):
+        from apps.assessments.services import AttemptTimerService
+        e = hardening_fixture
+        att = e["att1"]
+        att.status = AttemptStatus.CANCELLED
+        att.save(update_fields=['status'])
+
+        with pytest.raises(DRFValidationError) as exc1:
+            AttemptTimerService.authorize_pause(att, actor=e["proctorA"])
+        assert "Cannot pause attempt in status CANCELLED" in str(exc1.value)
+
+        with pytest.raises(DRFValidationError) as exc2:
+            AttemptTimerService.apply_authorized_pause(att, pause_duration_seconds=60, actor=e["proctorA"])
+        assert "Cannot apply pause to attempt in status CANCELLED" in str(exc2.value)
+
+    def test_phase5_invalid_pause_duration_rejected(self, hardening_fixture):
+        from apps.assessments.services import AttemptTimerService
+        e = hardening_fixture
+        att = e["att1"]
+
+        # Zero or negative seconds rejected
+        with pytest.raises(DRFValidationError) as exc1:
+            AttemptTimerService.apply_authorized_pause(att, pause_duration_seconds=0, actor=e["proctorA"])
+        assert "must be a positive integer" in str(exc1.value)
+
+        with pytest.raises(DRFValidationError) as exc2:
+            AttemptTimerService.apply_authorized_pause(att, pause_duration_seconds=-10, actor=e["proctorA"])
+        assert "must be a positive integer" in str(exc2.value)
+
+    def test_phase5_pause_cannot_exceed_assessment_end_ceiling(self, hardening_fixture):
+        from apps.assessments.services import AttemptTimerService
+        e = hardening_fixture
+        att = e["att1"]
+        now = timezone.now()
+
+        # Set assessment end 60 seconds from now
+        Assessment.objects.filter(id=e["ass1"].id).update(end_datetime=now + timedelta(seconds=60))
+        e["ass1"].refresh_from_db()
+        att.refresh_from_db()
+
+        # Request 3600 seconds pause
+        updated = AttemptTimerService.apply_authorized_pause(att, pause_duration_seconds=3600, actor=e["proctorA"])
+
+        # Hard invariant: strictly clamped to assessment.end_datetime
+        assert updated.expires_at == e["ass1"].end_datetime
+        assert updated.expires_at <= e["ass1"].end_datetime
+
+    # =========================================================================
+    # 8. DIRECT DELEGATION & ARCHITECTURAL INVARIANT PROOFS
+    # =========================================================================
+
+    def test_architectural_invariant_phase10_delegates_to_phase5_timer(self, hardening_fixture, monkeypatch):
+        """
+        Directly tests the architectural invariant:
+        Phase 10 does not calculate or own timer adjustments independently.
+        It delegates pause authorization and application to AttemptTimerService.
+        """
+        from apps.assessments.services import AttemptTimerService
+        e = hardening_fixture
+        att = e["att1"]
+        att_id = str(att.id)
+
+        auth_calls = []
+        apply_calls = []
+
+        orig_auth = AttemptTimerService.authorize_pause
+        orig_apply = AttemptTimerService.apply_authorized_pause
+
+        def spy_auth(attempt, actor=None):
+            auth_calls.append((attempt.id, actor))
+            return orig_auth(attempt, actor=actor)
+
+        def spy_apply(attempt, pause_duration_seconds, actor=None, request=None):
+            apply_calls.append((attempt.id, pause_duration_seconds, actor))
+            return orig_apply(attempt, pause_duration_seconds, actor=actor, request=request)
+
+        monkeypatch.setattr(AttemptTimerService, "authorize_pause", classmethod(lambda cls, attempt, actor=None: spy_auth(attempt, actor)))
+        monkeypatch.setattr(AttemptTimerService, "apply_authorized_pause", classmethod(lambda cls, attempt, pause_duration_seconds, actor=None, request=None: spy_apply(attempt, pause_duration_seconds, actor=actor, request=request)))
+
+        # 1. Pause invocation triggers Phase 5 authorize_pause
+        p = LiveInterventionService.pause_attempt(e["proctorA"], att_id, reason="Delegation check")
+        assert len(auth_calls) == 1
+        assert auth_calls[0][0] == att.id
+        assert auth_calls[0][1] == e["proctorA"]
+
+        # 2. Resume invocation triggers Phase 5 apply_authorized_pause
+        r = LiveInterventionService.resume_attempt(e["proctorA"], att_id, reason="Resume delegation")
+        assert len(apply_calls) == 1
+        assert apply_calls[0][0] == att.id
+        assert apply_calls[0][1] > 0
+        assert apply_calls[0][2] == e["proctorA"]
+
+    def test_concurrency_serialization_termination_vs_pause(self, hardening_fixture):
+        e = hardening_fixture
+        att = e["att1"]
+        att_id = str(att.id)
+
+        # Terminate attempt
+        LiveInterventionService.terminate_attempt(e["proctorA"], att_id, reason_code="DISQUALIFY", formal_justification="Cheating")
+
+        # Subsequent pause attempt must be rejected
+        with pytest.raises(DRFValidationError) as exc:
+            LiveInterventionService.pause_attempt(e["proctorA"], att_id, reason="Late pause")
+        assert "Cannot pause attempt in status CANCELLED" in str(exc.value)
+
+    def test_concurrency_serialization_submission_vs_pause(self, hardening_fixture):
+        e = hardening_fixture
+        att = e["att1"]
+        att_id = str(att.id)
+
+        # Submit attempt
+        att.status = AttemptStatus.SUBMITTED
+        att.submitted_at = timezone.now()
+        att.save(update_fields=['status', 'submitted_at'])
+
+        # Subsequent pause attempt must be rejected
+        with pytest.raises(DRFValidationError) as exc:
+            LiveInterventionService.pause_attempt(e["proctorA"], att_id, reason="Late pause")
+        assert "Cannot pause attempt in status SUBMITTED" in str(exc.value)
+
+
