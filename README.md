@@ -1,7 +1,7 @@
 # CODEGUARD — Online Coding & Technical Assessment Platform
 
 ![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge)
-![Backend Tests](https://img.shields.io/badge/Pytest-257%2F257%20PASS-success?style=for-the-badge&logo=python)
+![Backend Tests](https://img.shields.io/badge/Pytest-327%2F327%20PASS-success?style=for-the-badge&logo=python)
 ![Frontend Status](https://img.shields.io/badge/Frontend-TypeScript%20Verified-blue?style=for-the-badge&logo=react)
 ![Django 5](https://img.shields.io/badge/Backend-Django_5_|_DRF_|_Channels-092e20?style=for-the-badge&logo=django)
 ![React 18](https://img.shields.io/badge/Frontend-React_18_|_TypeScript_|_Tailwind-20232a?style=for-the-badge&logo=react)
@@ -12,7 +12,7 @@
 
 ## 1. Project Overview
 
-**CODEGUARD** is an enterprise-grade technical examination and assessment platform engineered for universities, academic institutions, and technical recruitment. It pairs sandboxed multi-language code execution with automated real-time AI invigilation, mathematical scoring and certificate generation, and automated GDPR/FERPA-compliant data retention with legal hold management.
+**CODEGUARD** is an enterprise-grade technical examination and assessment platform engineered for universities, academic institutions, and technical recruitment. It pairs sandboxed multi-language code execution with automated real-time AI invigilation, mathematical scoring and certificate generation, automated GDPR/FERPA-compliant data retention with legal hold management, and a real-time human proctoring console with live interventions.
 
 ### Key Capabilities
 - **Candidate Assessment Workflow**: Students register and receive institutional EUIDs, take scheduled examinations in a full-screen locked environment with server-authoritative countdown timers, and solve MCQ, SQL, and DSA coding challenges.
@@ -20,7 +20,7 @@
 - **Automated AI Proctoring**: Browser-based vision models analyze periodic webcam keyframes in real time to detect face absence, multiple faces, gaze deviations, and mobile devices, computing an advisory mathematical risk score.
 - **Authoritative Results & Analytics**: Computes weighted scores, grade bands, passing determinations, and exports cryptographically verifiable PDF scorecards and Excel reports sanitized against CSV formula injection.
 - **Data Retention & Privacy Compliance**: Automated lifecycle engine purges detailed answers, code, and telemetry after retention deadlines, enforces scoped legal holds, assembly-encrypts AES-256-GCM DSAR self-service archives, and mints permanent HMAC-SHA256 audit tombstones.
-- **Human Invigilation (Planned Phase 10)**: Real-time human proctoring console with live periodic keyframe triage, formal bilateral warnings, timer freeze/pause during investigation, room scans, and emergency disqualification with documented cause. *(Currently under architecture review; not implemented)*.
+- **Human Invigilation & Live Interventions**: Real-time human proctoring console (`apps.invigilation`) featuring live prioritized candidate triage queues, bilateral candidate messaging, formal non-accusatory warnings, authoritative timer pause/resume with 15-minute cumulative caps, 360° environment room scans, and emergency disqualification with documented cause linked directly to Phase 8 finalization.
 
 ---
 
@@ -36,15 +36,13 @@ Phase 6: Sandboxed Code Execution & Grading (Judge0)──► FROZEN 🔒 (Verif
 Phase 7: Real-Time AI Proctoring & Risk Scoring     ──► FROZEN 🔒 (Verified)
 Phase 8: Results, Grade Ledger & Scorecards (PDF)   ──► FROZEN 🔒 (Verified)
 Phase 9: Data Retention, DSAR & Legal Hold Engine   ──► FROZEN 🔒 (Verified)
-─────────────────────────────────────────────────────────────────────────
-Phase 10: Human Invigilation & Live Interventions   ──► ARCHITECTURE REVIEW 🎯
-                                                        (NOT IMPLEMENTED)
+Phase 10: Human Invigilation & Live Interventions   ──► IMPLEMENTED & VERIFIED 🔒
 ```
 
 ### Verified Quality Metrics:
-- **Backend Test Suite**: **257 / 257 PASS** (197 Phase 1–8 regression tests + 60 Phase 9 retention tests).
+- **Backend Test Suite**: **327 / 327 PASS** (257 Phase 1–9 regression tests + 70 Phase 10 invigilation tests).
 - **Frontend Typecheck**: **0 errors** (`tsc --noEmit` PASS).
-- **Frontend Production Build**: **PASS** (`vite build` production bundle generated in 1.5s).
+- **Frontend Production Build**: **PASS** (`vite build` production bundle generated cleanly).
 - **Database Schema**: `python manage.py makemigrations --check` $\longrightarrow$ **"No changes detected"**.
 
 ---

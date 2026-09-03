@@ -26,6 +26,8 @@ import {
   Mic,
   Shield,
   ShieldAlert,
+  Pause,
+  XCircle,
 } from 'lucide-react';
 import {
   StudentAttemptDetail,
@@ -42,6 +44,7 @@ import {
   sendProctoringHeartbeat,
 } from '../../api/proctoring';
 import { ProctoringWarning } from '../../types/proctoring';
+import { InvigilationAPI } from '../../api/invigilation';
 
 
 export const StudentTestRoomPage: React.FC = () => {
@@ -78,6 +81,15 @@ export const StudentTestRoomPage: React.FC = () => {
   const [micStatus, setMicStatus] = useState<'CONNECTED' | 'DISCONNECTED' | 'DENIED'>('DISCONNECTED');
   const [activeWarning, setActiveWarning] = useState<ProctoringWarning | null>(null);
   const [isWarningModalOpen, setIsWarningModalOpen] = useState<boolean>(false);
+
+  // Phase 10 Live Intervention State
+  const [isAttemptPaused, setIsAttemptPaused] = useState<boolean>(false);
+  const [pauseReason, setPauseReason] = useState<string>('');
+  const [isRoomScanModalOpen, setIsRoomScanModalOpen] = useState<boolean>(false);
+  const [activeRoomScanId, setActiveRoomScanId] = useState<string | null>(null);
+  const [roomScanInstructions, setRoomScanInstructions] = useState<string>('');
+  const [isTerminatedModalOpen, setIsTerminatedModalOpen] = useState<boolean>(false);
+  const [terminationInfo, setTerminationInfo] = useState<{ reason: string; justification: string; terminatedAt?: string } | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -230,12 +242,28 @@ export const StudentTestRoomPage: React.FC = () => {
   const handleAcknowledgeWarning = async () => {
     if (activeWarning && attemptId) {
       try {
-        await acknowledgeWarning(attemptId, activeWarning.id);
+        await InvigilationAPI.acknowledgeWarning(attemptId, activeWarning.id);
       } catch (err) {
-        console.warn('Warning ack error:', err);
+        try {
+          await acknowledgeWarning(attemptId, activeWarning.id);
+        } catch (e) {
+          console.warn('Warning ack error:', e);
+        }
       }
     }
     setIsWarningModalOpen(false);
+  };
+
+  const handleCompleteRoomScan = async () => {
+    if (activeRoomScanId && attemptId) {
+      try {
+        await InvigilationAPI.completeRoomScan(attemptId, activeRoomScanId);
+      } catch (err) {
+        console.warn('Room scan complete error:', err);
+      }
+    }
+    setIsRoomScanModalOpen(false);
+    setActiveRoomScanId(null);
   };
 
   // Load Attempt State
@@ -310,6 +338,38 @@ export const StudentTestRoomPage: React.FC = () => {
                 setExecutionMode(null);
               });
             }
+          }
+        } else if (data.type === 'PROCTOR_EVENT' || data.type === 'EVENT') {
+          const evt = data.data || {};
+          if (evt.event === 'PAUSE_STARTED') {
+            setIsAttemptPaused(true);
+            setPauseReason(evt.reason || 'Attempt paused by proctor.');
+          } else if (evt.event === 'PAUSE_ENDED') {
+            setIsAttemptPaused(false);
+            if (typeof evt.remaining_seconds === 'number') {
+              setRemainingSeconds(evt.remaining_seconds);
+            }
+          } else if (evt.event === 'WARNING_ISSUED') {
+            setActiveWarning({
+              id: evt.intervention_id,
+              warning_type: evt.reason_code,
+              message: evt.message,
+              issued_at: evt.issued_at,
+              acknowledged_at: null,
+            });
+            setIsWarningModalOpen(true);
+          } else if (evt.event === 'ROOM_SCAN_REQUESTED') {
+            setActiveRoomScanId(evt.intervention_id);
+            setRoomScanInstructions(evt.instructions || 'Please perform a 360 room scan using your webcam.');
+            setIsRoomScanModalOpen(true);
+          } else if (evt.event === 'TERMINATION_REQUESTED') {
+            setTerminationInfo({
+              reason: evt.reason_code,
+              justification: evt.justification,
+              terminatedAt: evt.terminated_at,
+            });
+            setIsTerminatedModalOpen(true);
+            setAttemptData((prev) => (prev ? { ...prev, status: 'CANCELLED' } : null));
           }
         }
       } catch (err) {
@@ -1299,6 +1359,79 @@ export const StudentTestRoomPage: React.FC = () => {
                 onClick={handleAcknowledgeWarning}
               >
                 I Understand & Acknowledge
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Frosted Pause Overlay */}
+      {isAttemptPaused && (
+        <div className="fixed inset-0 z-40 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-md">
+          <div className="p-8 max-w-md w-full bg-slate-900 border border-amber-500/40 rounded-2xl shadow-2xl text-center space-y-4">
+            <div className="w-16 h-16 mx-auto rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+              <Pause className="w-8 h-8" />
+            </div>
+            <h2 className="text-xl font-bold text-white">Assessment Attempt Paused</h2>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {pauseReason || 'Your assessment attempt has been temporarily paused by an invigilator. Countdown timer is suspended.'}
+            </p>
+            <div className="p-3 bg-slate-950 rounded-lg text-xs text-slate-400 border border-slate-800">
+              Please remain at your desk. The assessment will resume shortly.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Room Scan Modal */}
+      {isRoomScanModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm">
+          <Card className="max-w-md w-full p-6 space-y-5 border-indigo-500/40 bg-slate-900 shadow-2xl">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+              <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                <Camera className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Room Scan Requested</h3>
+                <span className="text-[11px] text-slate-400">Proctor Environment Verification</span>
+              </div>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">{roomScanInstructions}</p>
+            <p className="text-[11px] text-slate-400">
+              Slowly rotate your webcam 360 degrees around your workspace, ensuring your desk and surroundings are clearly visible.
+            </p>
+            <div className="flex justify-end pt-2 border-t border-slate-800">
+              <Button variant="primary" size="sm" onClick={handleCompleteRoomScan}>
+                I Have Completed the Scan
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Termination Notice Modal */}
+      {isTerminatedModalOpen && terminationInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/95 backdrop-blur-md">
+          <Card className="max-w-md w-full p-6 space-y-5 border-red-500/60 bg-slate-900 shadow-2xl">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+              <div className="p-2 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20">
+                <XCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-red-400">Assessment Terminated</h3>
+                <span className="text-[11px] text-slate-400">Disqualification Notice</span>
+              </div>
+            </div>
+            <div className="p-4 rounded-xl bg-red-950/30 border border-red-800/50 space-y-2 text-xs text-red-200 leading-relaxed">
+              <div><strong>Reason Code:</strong> {terminationInfo.reason}</div>
+              <div><strong>Official Justification:</strong> {terminationInfo.justification}</div>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              This attempt has been cancelled by an invigilator and submitted for academic review. You can safely close this window.
+            </p>
+            <div className="flex justify-end pt-2 border-t border-slate-800">
+              <Button variant="primary" size="sm" onClick={() => navigate('/student/assessments')}>
+                Return to Assessments
               </Button>
             </div>
           </Card>

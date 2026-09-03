@@ -29,7 +29,7 @@ export const Navbar: React.FC = () => {
                   CODE<span className="text-brand-400">GUARD</span>
                 </span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 font-mono font-medium border border-brand-500/20">
-                  PHASE 9
+                  PHASE 10
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 font-normal leading-none mt-0.5">

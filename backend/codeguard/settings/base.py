@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'apps.proctoring',
     'apps.results',
     'apps.retention',
+    'apps.invigilation',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
