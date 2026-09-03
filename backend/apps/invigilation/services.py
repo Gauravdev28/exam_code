@@ -658,6 +658,21 @@ class ProctorTriageQueueService:
         ).select_related('attempt')
         session_map = {s.attempt_id: s for s in sessions}
 
+        # Batch-fetch all active pause interventions for all attempts in a single query (PERF-01)
+        pause_events = ProctorIntervention.objects.filter(
+            attempt__in=attempts,
+            event_type__in=[InterventionType.PAUSE_STARTED, InterventionType.PAUSE_ENDED]
+        ).order_by('issued_at')
+
+        ended_parent_ids = {
+            p.parent_event_id for p in pause_events
+            if p.event_type == InterventionType.PAUSE_ENDED and p.parent_event_id
+        }
+        active_pauses_by_attempt: Dict[Any, ProctorIntervention] = {}
+        for p in pause_events:
+            if p.event_type == InterventionType.PAUSE_STARTED and p.id not in ended_parent_ids:
+                active_pauses_by_attempt[p.attempt_id] = p
+
         now = timezone.now()
         roster_items = []
 
@@ -667,7 +682,7 @@ class ProctorTriageQueueService:
             risk_score = float(sess.risk_score) if sess else 0.0
             events_count = sess.total_events_count if sess else 0
 
-            active_pause = LiveInterventionService.get_active_pause(att)
+            active_pause = active_pauses_by_attempt.get(att.id)
             is_paused = active_pause is not None
             remaining_seconds = AttemptTimerService.get_remaining_seconds(att)
 
@@ -784,3 +799,29 @@ class ProctorChatService:
             ProctorChatMessage.objects.filter(id__in=unread_ids).update(is_read=True)
 
         return list(messages)
+
+
+# ==============================================================================
+# 5. Invigilation Retention Boundary Service (RET-01)
+# ==============================================================================
+
+class InvigilationRetentionService:
+    """
+    Authorized retention boundary service callable strictly by Phase 9.
+    Provides explicit, auditable purging of Phase 10 intervention and chat records
+    once an attempt's legal retention window has elapsed.
+    """
+
+    @classmethod
+    def purge_invigilation_records_for_attempt(cls, attempt: TestAttempt) -> Dict[str, int]:
+        """
+        Permanently scrubs all ProctorIntervention and ProctorChatMessage records
+        associated with the specified attempt under Phase 9 retention authority.
+        """
+        interventions_purged, _ = ProctorIntervention.objects.filter(attempt=attempt).hard_purge_for_retention()
+        chat_purged, _ = ProctorChatMessage.objects.filter(attempt=attempt).hard_purge_for_retention()
+        return {
+            "interventions_purged": interventions_purged,
+            "chat_purged": chat_purged,
+        }
+

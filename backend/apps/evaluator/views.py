@@ -3,7 +3,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
-from apps.accounts.permissions import IsActiveUser, IsAdmin, IsStudent
+from apps.accounts.permissions import IsActiveUser, IsAdmin, IsStudent, IsFirstLoginSatisfied
 from apps.core.responses import APIResponse
 from apps.evaluator.models import CodeSubmission, SubmissionType
 from apps.evaluator.serializers import (
@@ -20,7 +20,7 @@ class StudentCodeRunView(APIView):
     Queue an asynchronous test run on public test cases only.
     POST /api/v1/student/attempts/<attempt_id>/questions/<question_id>/run/
     """
-    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent]
+    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent, IsFirstLoginSatisfied]
 
     def post(self, request, attempt_id, question_id):
         serializer = CodeRunRequestSerializer(data=request.data)
@@ -56,7 +56,7 @@ class StudentCodeSubmitView(APIView):
     Queue an authoritative evaluation on all test cases (public + hidden) and update AttemptAnswer.
     POST /api/v1/student/attempts/<attempt_id>/questions/<question_id>/submit/
     """
-    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent]
+    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent, IsFirstLoginSatisfied]
 
     def post(self, request, attempt_id, question_id):
         serializer = CodeSubmitRequestSerializer(data=request.data)
@@ -91,7 +91,7 @@ class StudentSubmissionDetailView(APIView):
     Poll or retrieve submission status and results (with hidden test cases sanitized).
     GET /api/v1/student/submissions/<submission_id>/
     """
-    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent]
+    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent, IsFirstLoginSatisfied]
 
     def get(self, request, submission_id):
         submission = get_object_or_404(

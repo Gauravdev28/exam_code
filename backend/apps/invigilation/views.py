@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, NotFound
 
 from apps.accounts.models import Role, User
+from apps.accounts.permissions import IsActiveUser, IsStudent, IsFirstLoginSatisfied
 from apps.assessments.models import Assessment, TestAttempt
 from apps.invigilation.models import ProctorAssignment, ProctorIntervention
 from apps.invigilation.permissions import (
@@ -259,7 +260,7 @@ class StudentAcknowledgeWarningView(APIView):
     """
     Enables candidate to acknowledge an issued warning.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent, IsFirstLoginSatisfied]
 
     def post(self, request, attempt_id):
         serializer = AcknowledgeWarningSerializer(data=request.data)
@@ -278,7 +279,7 @@ class StudentCompleteRoomScanView(APIView):
     """
     Enables candidate to mark room scan complete.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent, IsFirstLoginSatisfied]
 
     def post(self, request, attempt_id):
         serializer = CompleteRoomScanSerializer(data=request.data)
@@ -298,7 +299,7 @@ class StudentInterventionListView(APIView):
     Candidate-safe intervention list.
     STRICTLY MASKS proctor identity and internal_notes (DSAR & privacy compliance).
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent, IsFirstLoginSatisfied]
 
     def get(self, request, attempt_id):
         attempt = TestAttempt.objects.filter(id=attempt_id).first()

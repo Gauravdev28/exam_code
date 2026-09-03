@@ -5,7 +5,7 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 
-from apps.accounts.permissions import IsAdmin, IsActiveUser, IsStudent
+from apps.accounts.permissions import IsAdmin, IsActiveUser, IsStudent, IsFirstLoginSatisfied
 from apps.core.views import APIResponse
 from apps.questions.models import QuestionVersion
 from .models import (
@@ -328,7 +328,7 @@ class StudentAssessmentListView(APIView):
     List all assessments assigned to the authenticated student.
     GET /api/v1/student/assessments/
     """
-    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent]
+    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent, IsFirstLoginSatisfied]
 
     def get(self, request):
         # Query only assigned assessments in PUBLISHED status
@@ -347,7 +347,7 @@ class StudentAssessmentDetailView(APIView):
     Get instructions and eligibility for a specific assigned assessment.
     GET /api/v1/student/assessments/<id>/
     """
-    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent]
+    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent, IsFirstLoginSatisfied]
 
     def get(self, request, pk):
         assessment = get_object_or_404(
@@ -367,7 +367,7 @@ class StudentAssessmentStartView(APIView):
     Start or Resume a Test Attempt.
     POST /api/v1/student/assessments/<id>/start/
     """
-    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent]
+    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent, IsFirstLoginSatisfied]
 
     def post(self, request, pk):
         attempt, created = AttemptService.start_attempt(
@@ -388,7 +388,7 @@ class StudentAttemptDetailView(APIView):
     Retrieve authoritative test attempt state, sanitized snapshot questions, and current answers.
     GET /api/v1/student/attempts/<id>/
     """
-    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent]
+    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent, IsFirstLoginSatisfied]
 
     def get(self, request, pk):
         attempt = get_object_or_404(
@@ -458,7 +458,7 @@ class StudentAttemptSaveAnswerView(APIView):
     Save or Autosave an answer for a specific question within an attempt.
     POST /api/v1/student/attempts/<id>/answers/<question_id>/
     """
-    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent]
+    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent, IsFirstLoginSatisfied]
 
     def post(self, request, pk, question_id):
         serializer = SaveAnswerPayloadSerializer(data=request.data)
@@ -488,7 +488,7 @@ class StudentAttemptSubmitView(APIView):
     Final submission of a test attempt.
     POST /api/v1/student/attempts/<id>/submit/
     """
-    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent]
+    permission_classes = [IsAuthenticated, IsActiveUser, IsStudent, IsFirstLoginSatisfied]
 
     def post(self, request, pk):
         attempt = AttemptService.submit_attempt(

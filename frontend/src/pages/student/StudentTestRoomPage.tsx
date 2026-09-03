@@ -295,102 +295,142 @@ export const StudentTestRoomPage: React.FC = () => {
     loadAttemptState();
   }, [loadAttemptState]);
 
-  // WebSocket Connection
+  // WebSocket Connection with Bounded Exponential Backoff Reconnection (ASYNC-01)
   useEffect(() => {
     if (!attemptId) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/attempts/${attemptId}/`;
+    let isDisposed = false;
+    let reconnectAttempts = 0;
+    const maxReconnectDelay = 30000; // 30s ceiling
+    let reconnectTimer: any = null;
+    let pingInterval: any = null;
 
-    const ws = new WebSocket(wsUrl);
-    socketRef.current = ws;
+    const connectWebSocket = () => {
+      if (isDisposed) return;
 
-    ws.onopen = () => {
-      setWsConnected(true);
-    };
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/attempts/${attemptId}/`;
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'PONG' || data.type === 'SYNC_STATE') {
-          if (typeof data.remaining_seconds === 'number') {
-            setRemainingSeconds(data.remaining_seconds);
-          }
-          if (data.status === 'EXPIRED' || data.status === 'SUBMITTED') {
-            setAttemptData((prev) => (prev ? { ...prev, status: data.status } : null));
-          }
-        } else if (data.type === 'CODE_SUBMISSION_COMPLETED' || data.type === 'CODE_SUBMISSION_QUEUED' || data.type === 'CODE_SUBMISSION_PROCESSING') {
-          const submData = data.data;
-          if (submData && submData.question_id) {
-            if (data.type === 'CODE_SUBMISSION_COMPLETED') {
-              // Fetch full submission details
-              evaluatorApi.getSubmissionResult(submData.submission_id).then((res) => {
-                if (res.data) {
-                  setSubmissionResults((prev) => ({
-                    ...prev,
-                    [submData.question_id]: res.data,
-                  }));
-                }
-                setExecutingQuestionId(null);
-                setExecutionMode(null);
-              }).catch(() => {
-                setExecutingQuestionId(null);
-                setExecutionMode(null);
-              });
-            }
-          }
-        } else if (data.type === 'PROCTOR_EVENT' || data.type === 'EVENT') {
-          const evt = data.data || {};
-          if (evt.event === 'PAUSE_STARTED') {
-            setIsAttemptPaused(true);
-            setPauseReason(evt.reason || 'Attempt paused by proctor.');
-          } else if (evt.event === 'PAUSE_ENDED') {
-            setIsAttemptPaused(false);
-            if (typeof evt.remaining_seconds === 'number') {
-              setRemainingSeconds(evt.remaining_seconds);
-            }
-          } else if (evt.event === 'WARNING_ISSUED') {
-            setActiveWarning({
-              id: evt.intervention_id,
-              warning_type: evt.reason_code,
-              message: evt.message,
-              issued_at: evt.issued_at,
-              acknowledged_at: null,
-            });
-            setIsWarningModalOpen(true);
-          } else if (evt.event === 'ROOM_SCAN_REQUESTED') {
-            setActiveRoomScanId(evt.intervention_id);
-            setRoomScanInstructions(evt.instructions || 'Please perform a 360 room scan using your webcam.');
-            setIsRoomScanModalOpen(true);
-          } else if (evt.event === 'TERMINATION_REQUESTED') {
-            setTerminationInfo({
-              reason: evt.reason_code,
-              justification: evt.justification,
-              terminatedAt: evt.terminated_at,
-            });
-            setIsTerminatedModalOpen(true);
-            setAttemptData((prev) => (prev ? { ...prev, status: 'CANCELLED' } : null));
-          }
+      const ws = new WebSocket(wsUrl);
+      socketRef.current = ws;
+
+      ws.onopen = () => {
+        if (isDisposed) {
+          ws.close();
+          return;
         }
-      } catch (err) {
-        console.error('WS error parsing message', err);
-      }
-    };
-
-    ws.onclose = () => {
-      setWsConnected(false);
-    };
-
-    // Ping interval for timer sync every 10 seconds
-    const pingInterval = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
+        setWsConnected(true);
+        reconnectAttempts = 0; // Reset backoff on successful connect
+        // Request immediate authoritative timer sync
         ws.send(JSON.stringify({ action: 'PING' }));
-      }
-    }, 10000);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'PONG' || data.type === 'SYNC_STATE') {
+            if (typeof data.remaining_seconds === 'number') {
+              setRemainingSeconds(data.remaining_seconds);
+            }
+            if (data.status === 'EXPIRED' || data.status === 'SUBMITTED') {
+              setAttemptData((prev) => (prev ? { ...prev, status: data.status } : null));
+            }
+          } else if (data.type === 'CODE_SUBMISSION_COMPLETED' || data.type === 'CODE_SUBMISSION_QUEUED' || data.type === 'CODE_SUBMISSION_PROCESSING') {
+            const submData = data.data;
+            if (submData && submData.question_id) {
+              if (data.type === 'CODE_SUBMISSION_COMPLETED') {
+                // Fetch full submission details
+                evaluatorApi.getSubmissionResult(submData.submission_id).then((res) => {
+                  if (res.data) {
+                    setSubmissionResults((prev) => ({
+                      ...prev,
+                      [submData.question_id]: res.data,
+                    }));
+                  }
+                  setExecutingQuestionId(null);
+                  setExecutionMode(null);
+                }).catch(() => {
+                  setExecutingQuestionId(null);
+                  setExecutionMode(null);
+                });
+              }
+            }
+          } else if (data.type === 'PROCTOR_EVENT' || data.type === 'EVENT') {
+            const evt = data.data || {};
+            if (evt.event === 'PAUSE_STARTED') {
+              setIsAttemptPaused(true);
+              setPauseReason(evt.reason || 'Attempt paused by proctor.');
+            } else if (evt.event === 'PAUSE_ENDED') {
+              setIsAttemptPaused(false);
+              if (typeof evt.remaining_seconds === 'number') {
+                setRemainingSeconds(evt.remaining_seconds);
+              }
+            } else if (evt.event === 'WARNING_ISSUED') {
+              setActiveWarning({
+                id: evt.intervention_id,
+                warning_type: evt.reason_code,
+                message: evt.message,
+                issued_at: evt.issued_at,
+                acknowledged_at: null,
+              });
+              setIsWarningModalOpen(true);
+            } else if (evt.event === 'ROOM_SCAN_REQUESTED') {
+              setActiveRoomScanId(evt.intervention_id);
+              setRoomScanInstructions(evt.instructions || 'Please perform a 360 room scan using your webcam.');
+              setIsRoomScanModalOpen(true);
+            } else if (evt.event === 'TERMINATION_REQUESTED') {
+              setTerminationInfo({
+                reason: evt.reason_code,
+                justification: evt.justification,
+                terminatedAt: evt.terminated_at,
+              });
+              setIsTerminatedModalOpen(true);
+              setAttemptData((prev) => (prev ? { ...prev, status: 'CANCELLED' } : null));
+            }
+          }
+        } catch (err) {
+          console.error('WS error parsing message', err);
+        }
+      };
+
+      ws.onclose = () => {
+        setWsConnected(false);
+        if (pingInterval) clearInterval(pingInterval);
+        if (!isDisposed) {
+          // Bounded exponential backoff: 1s, 2s, 4s, 8s, 16s, max 30s
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), maxReconnectDelay);
+          reconnectAttempts += 1;
+          reconnectTimer = setTimeout(() => {
+            connectWebSocket();
+          }, delay);
+        }
+      };
+
+      ws.onerror = () => {
+        try {
+          ws.close();
+        } catch (_) {}
+      };
+
+      // Ping interval for timer sync every 10 seconds
+      if (pingInterval) clearInterval(pingInterval);
+      pingInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ action: 'PING' }));
+        }
+      }, 10000);
+    };
+
+    connectWebSocket();
 
     return () => {
-      clearInterval(pingInterval);
-      ws.close();
+      isDisposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (pingInterval) clearInterval(pingInterval);
+      if (socketRef.current) {
+        socketRef.current.close();
+        socketRef.current = null;
+      }
     };
   }, [attemptId]);
 

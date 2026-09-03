@@ -30,8 +30,33 @@ class ImmutableInterventionQuerySet(models.QuerySet):
             "ProctorIntervention records cannot be deleted directly via QuerySet. Deletion is governed by Phase 9 retention lifecycle."
         )
 
+    def hard_purge_for_retention(self):
+        """
+        Explicit, authorized internal operation callable strictly by Phase 9
+        AuthoritativeScrubbingService during retention lifecycle execution.
+        """
+        return super().delete()
+
 
 class ImmutableInterventionManager(models.Manager.from_queryset(ImmutableInterventionQuerySet)):
+    pass
+
+
+class ImmutableChatMessageQuerySet(models.QuerySet):
+    def delete(self):
+        raise PermissionDenied(
+            "ProctorChatMessage records cannot be deleted directly via QuerySet. Governed by Phase 9 retention."
+        )
+
+    def hard_purge_for_retention(self):
+        """
+        Explicit, authorized internal operation callable strictly by Phase 9
+        AuthoritativeScrubbingService during retention lifecycle execution.
+        """
+        return super().delete()
+
+
+class ImmutableChatMessageManager(models.Manager.from_queryset(ImmutableChatMessageQuerySet)):
     pass
 
 
@@ -191,6 +216,12 @@ class ProctorIntervention(UUIDModel, TimeStampedModel):
             "ProctorIntervention records cannot be deleted directly. Deletion is governed by Phase 9 retention lifecycle."
         )
 
+    def hard_purge_for_retention(self):
+        """
+        Explicit, authorized internal instance deletion callable strictly by Phase 9.
+        """
+        return super().delete()
+
 
 class ProctorDutySession(UUIDModel, TimeStampedModel):
     """
@@ -228,6 +259,8 @@ class ProctorChatMessage(UUIDModel, TimeStampedModel):
     Ephemeral bilateral communication log between an authorized proctor and a candidate
     during an active examination attempt.
     """
+    objects = ImmutableChatMessageManager()
+
     attempt = models.ForeignKey(
         TestAttempt,
         on_delete=models.CASCADE,
@@ -271,3 +304,9 @@ class ProctorChatMessage(UUIDModel, TimeStampedModel):
 
     def delete(self, *args, **kwargs):
         raise PermissionDenied("ProctorChatMessage records cannot be deleted directly. Governed by Phase 9 retention.")
+
+    def hard_purge_for_retention(self):
+        """
+        Explicit, authorized internal instance deletion callable strictly by Phase 9.
+        """
+        return super().delete()
