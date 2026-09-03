@@ -218,10 +218,8 @@ class TestInvigilationUnit:
         att = e["attempt"]
         # Cap at 60 seconds
         pause = LiveInterventionService.pause_attempt(e["proctor"], str(att.id), max_pause_seconds=60)
-        # Create completed pause with 65 seconds
-        ProctorIntervention.objects.filter(id=pause.id).update(metadata={'pause_duration_seconds': 65})
 
-        # End pause
+        # End pause with 65 seconds recorded
         ProctorIntervention.objects.create(
             attempt=att,
             proctor=e["proctor"],

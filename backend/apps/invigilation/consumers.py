@@ -74,9 +74,9 @@ class InvigilationConsumer(AsyncJsonWebsocketConsumer):
 
     @database_sync_to_async
     def _verify_proctor_access(self) -> bool:
-        if getattr(self.user, 'role', None) == Role.ADMIN or self.user.is_staff or self.user.is_superuser:
+        if getattr(self.user, 'role', None) == Role.ADMIN or self.user.is_superuser:
             return True
-        if getattr(self.user, 'role', None) not in ['PROCTOR', Role.ADMIN] and not self.user.is_staff:
+        if getattr(self.user, 'role', None) != 'PROCTOR':
             return False
         return ProctorAssignment.objects.filter(
             assessment_id=self.assessment_id,
@@ -143,8 +143,11 @@ class ProctorChatConsumer(AsyncJsonWebsocketConsumer):
             return True
 
         # Proctor / Admin check
-        if getattr(self.user, 'role', None) == Role.ADMIN or self.user.is_staff or self.user.is_superuser:
+        if getattr(self.user, 'role', None) == Role.ADMIN or self.user.is_superuser:
             return True
+
+        if getattr(self.user, 'role', None) != 'PROCTOR':
+            return False
 
         return ProctorAssignment.objects.filter(
             assessment_id=attempt['assessment_id'],

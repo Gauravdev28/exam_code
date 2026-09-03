@@ -168,14 +168,38 @@ class TestInvigilationConcurrency:
         att_id = str(att.id)
 
         # Cycle 1
-        p1 = LiveInterventionService.pause_attempt(e["proctorA"], att_id)
-        r1 = LiveInterventionService.resume_attempt(e["proctorA"], att_id)
-        ProctorIntervention.objects.filter(id=r1.id).update(metadata={'pause_duration_seconds': 100})
+        p1 = ProctorIntervention.objects.create(
+            attempt=att,
+            proctor=e["proctorA"],
+            student=att.student,
+            event_type=InterventionType.PAUSE_STARTED,
+            metadata={"max_pause_seconds": 900}
+        )
+        r1 = ProctorIntervention.objects.create(
+            attempt=att,
+            proctor=e["proctorA"],
+            student=att.student,
+            event_type=InterventionType.PAUSE_ENDED,
+            parent_event=p1,
+            metadata={"pause_duration_seconds": 100}
+        )
 
         # Cycle 2
-        p2 = LiveInterventionService.pause_attempt(e["proctorB"], att_id)
-        r2 = LiveInterventionService.resume_attempt(e["proctorB"], att_id)
-        ProctorIntervention.objects.filter(id=r2.id).update(metadata={'pause_duration_seconds': 200})
+        p2 = ProctorIntervention.objects.create(
+            attempt=att,
+            proctor=e["proctorB"],
+            student=att.student,
+            event_type=InterventionType.PAUSE_STARTED,
+            metadata={"max_pause_seconds": 900}
+        )
+        r2 = ProctorIntervention.objects.create(
+            attempt=att,
+            proctor=e["proctorB"],
+            student=att.student,
+            event_type=InterventionType.PAUSE_ENDED,
+            parent_event=p2,
+            metadata={"pause_duration_seconds": 200}
+        )
 
         # Total cumulative pause should be 300 seconds
         total_pause = LiveInterventionService.get_cumulative_pause_seconds(att)

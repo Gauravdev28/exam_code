@@ -42,7 +42,7 @@ class ProctorAssignedAssessmentsView(APIView):
     permission_classes = [IsAuthenticated, IsProctorOrAdmin]
 
     def get(self, request):
-        if request.user.role == Role.ADMIN or request.user.is_staff or request.user.is_superuser:
+        if request.user.role == Role.ADMIN or request.user.is_superuser:
             assignments = ProctorAssignment.objects.filter(is_active=True).select_related('proctor', 'assessment')
         else:
             assignments = ProctorAssignment.objects.filter(

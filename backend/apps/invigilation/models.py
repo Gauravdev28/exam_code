@@ -16,6 +16,23 @@ class InterventionType(models.TextChoices):
     ROOM_SCAN_REQUESTED = 'ROOM_SCAN_REQUESTED', 'Room Scan Requested'
     ROOM_SCAN_COMPLETED = 'ROOM_SCAN_COMPLETED', 'Room Scan Completed'
     TERMINATION_REQUESTED = 'TERMINATION_REQUESTED', 'Termination Requested'
+    TERMINATION_CONFIRMED = 'TERMINATION_CONFIRMED', 'Termination Confirmed'
+
+
+class ImmutableInterventionQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise PermissionDenied(
+            "ProctorIntervention records are strictly append-only and cannot be updated via QuerySet."
+        )
+
+    def delete(self):
+        raise PermissionDenied(
+            "ProctorIntervention records cannot be deleted directly via QuerySet. Deletion is governed by Phase 9 retention lifecycle."
+        )
+
+
+class ImmutableInterventionManager(models.Manager.from_queryset(ImmutableInterventionQuerySet)):
+    pass
 
 
 class ProctorAssignment(UUIDModel, TimeStampedModel):
@@ -79,6 +96,8 @@ class ProctorIntervention(UUIDModel, TimeStampedModel):
     Once committed, audit fields on these records can NEVER be modified or deleted.
     Lifecycle transitions (e.g. PAUSE_STARTED -> PAUSE_ENDED) are represented by additional immutable events.
     """
+    objects = ImmutableInterventionManager()
+
     attempt = models.ForeignKey(
         TestAttempt,
         on_delete=models.CASCADE,

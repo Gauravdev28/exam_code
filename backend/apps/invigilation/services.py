@@ -29,20 +29,33 @@ class ProctorRosterService:
     Manages proctor cohort assignments and object-level authorization links.
     """
     @classmethod
+    @transaction.atomic
     def assign_proctor(
         cls,
         assessment_id: str,
         proctor_user: User,
         assigned_by_user: Optional[User] = None,
         max_candidates: int = 30,
-        notes: str = ''
+        notes: str = '',
+        max_capacity: Optional[int] = None
     ) -> ProctorAssignment:
-        assessment = Assessment.objects.filter(id=assessment_id).first()
+        # Serialized capacity check: lock authoritative assignment owner (Assessment)
+        assessment = Assessment.objects.select_for_update().filter(id=assessment_id).first()
         if not assessment:
             raise NotFound("Assessment not found.")
 
-        if proctor_user.role not in ['PROCTOR', Role.ADMIN] and not proctor_user.is_staff:
+        if proctor_user.role not in ['PROCTOR', Role.ADMIN]:
             raise DRFValidationError({"proctor": "User must have PROCTOR or ADMIN role to be assigned."})
+
+        # Count active assignments on this assessment excluding updating proctor
+        active_count = ProctorAssignment.objects.filter(
+            assessment=assessment,
+            is_active=True
+        ).exclude(proctor=proctor_user).count()
+
+        effective_limit = max_capacity if max_capacity is not None else max_candidates
+        if active_count >= effective_limit:
+            raise DRFValidationError({"capacity": f"Proctor assignment capacity reached ({effective_limit} max)."})
 
         assignment, created = ProctorAssignment.objects.update_or_create(
             assessment=assessment,
@@ -67,8 +80,10 @@ class ProctorRosterService:
 
     @classmethod
     def is_proctor_assigned(cls, proctor_user: User, assessment_id: str) -> bool:
-        if proctor_user.role == Role.ADMIN or proctor_user.is_staff or proctor_user.is_superuser:
+        if proctor_user.role == Role.ADMIN or proctor_user.is_superuser:
             return True
+        if proctor_user.role != 'PROCTOR':
+            return False
         return ProctorAssignment.objects.filter(
             assessment_id=assessment_id,
             proctor=proctor_user,
@@ -564,6 +579,22 @@ class LiveInterventionService:
         attempt.status = AttemptStatus.CANCELLED
         attempt.submitted_at = now
         attempt.save(update_fields=['status', 'submitted_at', 'updated_at'])
+
+        # Record confirmed event linking to requested
+        confirmed_event = ProctorIntervention.objects.create(
+            attempt=attempt,
+            proctor=proctor,
+            student=attempt.student,
+            event_type=InterventionType.TERMINATION_CONFIRMED,
+            parent_event=intervention,
+            reason_code=reason_code,
+            reason_text=f"Termination confirmed with cause: {formal_justification}",
+            internal_notes=internal_notes,
+            metadata={
+                "formal_justification": formal_justification,
+                "confirmed_at": now.isoformat()
+            }
+        )
 
         AuditService.log(
             action="ATTEMPT_TERMINATED_BY_PROCTOR",
