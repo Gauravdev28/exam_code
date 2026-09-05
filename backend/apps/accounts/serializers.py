@@ -64,7 +64,7 @@ class AdministratorSerializer(serializers.ModelSerializer):
     display_name = serializers.CharField(read_only=True)
     first_name = serializers.CharField(read_only=True)
     is_primary = serializers.SerializerMethodField()
-    is_primary_admin = serializers.BooleanField(source='is_primary_admin', read_only=True)
+    is_primary_admin = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = User
