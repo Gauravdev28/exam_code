@@ -1,139 +1,311 @@
-import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Shield, Activity, LogOut, LogIn, LayoutDashboard, Users, User } from 'lucide-react';
+import React, { useState } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { 
+  Shield, 
+  LogOut, 
+  LogIn, 
+  LayoutDashboard, 
+  Users, 
+  BookOpen, 
+  Database, 
+  Eye, 
+  FileCode,
+  ShieldCheck,
+  BarChart3,
+  ChevronDown
+} from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
-import { Badge } from '../common/Badge';
 import { Button } from '../common/Button';
+import { getDashboardPath } from '../common/ProtectedRoute';
 
 export const Navbar: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
 
   const handleLogout = async () => {
     await logout();
     navigate('/login');
   };
 
+  const dashboardPath = getDashboardPath(user?.role);
+
   return (
-    <header className="sticky top-0 z-50 glass-panel border-b border-slate-800/80">
+    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Brand Logo */}
-          <Link to="/" className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center shadow-lg shadow-brand-500/25">
-              <Shield className="w-6 h-6 text-slate-950 stroke-[2.5]" />
+          <Link to={isAuthenticated ? dashboardPath : '/'} className="flex items-center gap-2.5 group">
+            <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white shadow-sm group-hover:bg-emerald-700 transition-colors">
+              <Shield className="w-5 h-5 stroke-[2.2]" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-lg tracking-tight font-sans text-white">
-                  CODE<span className="text-brand-400">GUARD</span>
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 font-mono font-medium border border-brand-500/20">
-                  PHASE 10
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-400 font-normal leading-none mt-0.5">
-                AI Assessment & Proctoring Platform
+              <span className="font-extrabold text-base tracking-tight font-sans text-slate-900 leading-none">
+                CODE<span className="text-emerald-600">GUARD</span>
+              </span>
+              <p className="text-[10px] text-slate-500 font-normal leading-none mt-1">
+                Assessment & Invigilation
               </p>
             </div>
           </Link>
 
           {/* Navigation Links */}
-          <nav className="flex items-center gap-3 sm:gap-6">
-            <Link
-              to="/"
-              className="flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-brand-400 transition-colors"
-            >
-              <LayoutDashboard className="w-4 h-4 text-brand-400" />
-              <span>Dashboard</span>
-            </Link>
+          <nav className="flex items-center gap-1 sm:gap-2">
+            {/* Public Links */}
+            {!isAuthenticated && (
+              <>
+                <Link
+                  to="/"
+                  className={`text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                    location.pathname === '/' ? 'text-emerald-700 bg-emerald-50 font-semibold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  Home
+                </Link>
+                <Link
+                  to="/about"
+                  className={`text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                    location.pathname === '/about' ? 'text-emerald-700 bg-emerald-50 font-semibold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  About
+                </Link>
+                <Link
+                  to="/features"
+                  className={`text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                    location.pathname === '/features' ? 'text-emerald-700 bg-emerald-50 font-semibold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  Features
+                </Link>
+                <Link
+                  to="/security"
+                  className={`text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                    location.pathname === '/security' ? 'text-emerald-700 bg-emerald-50 font-semibold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  Security
+                </Link>
+              </>
+            )}
 
+            {/* Clean Admin Navigation */}
             {isAuthenticated && user?.role === 'ADMIN' && (
               <>
                 <Link
-                  to="/admin/assessments"
-                  className="flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-brand-400 transition-colors"
+                  to="/admin"
+                  className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                    location.pathname === '/admin' || location.pathname === '/admin/dashboard'
+                      ? 'text-emerald-700 bg-emerald-50 font-semibold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
                 >
-                  <Shield className="w-4 h-4 text-brand-400" />
-                  <span>Assessments</span>
+                  <LayoutDashboard className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="hidden md:inline">Dashboard</span>
                 </Link>
+
+                <Link
+                  to="/admin/assessments"
+                  className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                    location.pathname.startsWith('/admin/assessments')
+                      ? 'text-emerald-700 bg-emerald-50 font-semibold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <FileCode className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="hidden md:inline">Assessments</span>
+                </Link>
+
                 <Link
                   to="/admin/questions"
-                  className="flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-brand-400 transition-colors"
+                  className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                    location.pathname.startsWith('/admin/questions')
+                      ? 'text-emerald-700 bg-emerald-50 font-semibold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
                 >
-                  <Shield className="w-4 h-4 text-amber-400" />
-                  <span>Questions</span>
+                  <BookOpen className="w-3.5 h-3.5 text-amber-600" />
+                  <span className="hidden md:inline">Questions</span>
                 </Link>
+
                 <Link
                   to="/admin/students"
-                  className="flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-brand-400 transition-colors"
+                  className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                    location.pathname.startsWith('/admin/students')
+                      ? 'text-emerald-700 bg-emerald-50 font-semibold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
                 >
-                  <Users className="w-4 h-4 text-purple-400" />
-                  <span>Students</span>
+                  <Users className="w-3.5 h-3.5 text-blue-600" />
+                  <span className="hidden md:inline">Students</span>
                 </Link>
+
+                <Link
+                  to="/admin/administrators"
+                  className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                    location.pathname.startsWith('/admin/administrators')
+                      ? 'text-emerald-700 bg-emerald-50 font-semibold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
+                  <span className="hidden md:inline">Administrators</span>
+                </Link>
+
+                <Link
+                  to="/admin/results"
+                  className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                    location.pathname.startsWith('/admin/results')
+                      ? 'text-emerald-700 bg-emerald-50 font-semibold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <BarChart3 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="hidden md:inline">Results</span>
+                </Link>
+
                 <Link
                   to="/admin/retention"
-                  className="flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-brand-400 transition-colors"
+                  className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                    location.pathname.startsWith('/admin/retention')
+                      ? 'text-emerald-700 bg-emerald-50 font-semibold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
                 >
-                  <Activity className="w-4 h-4 text-emerald-400" />
-                  <span>Retention</span>
+                  <Database className="w-3.5 h-3.5 text-slate-500" />
+                  <span className="hidden lg:inline">Retention</span>
                 </Link>
               </>
             )}
 
+            {/* Proctor Links */}
+            {isAuthenticated && user?.role === 'PROCTOR' && (
+              <Link
+                to="/proctor"
+                className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                  location.pathname === '/proctor' || location.pathname === '/proctor/dashboard'
+                    ? 'text-emerald-700 bg-emerald-50 font-semibold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <Eye className="w-4 h-4 text-amber-600" />
+                <span className="hidden md:inline">Live Assessments</span>
+              </Link>
+            )}
+
+            {/* Student Links */}
             {isAuthenticated && user?.role === 'STUDENT' && (
               <>
                 <Link
-                  to="/student/assessments"
-                  className="flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-brand-400 transition-colors"
+                  to="/student"
+                  className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                    location.pathname === '/student' || location.pathname === '/student/dashboard'
+                      ? 'text-emerald-700 bg-emerald-50 font-semibold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
                 >
-                  <Shield className="w-4 h-4 text-brand-400" />
-                  <span>Exams</span>
+                  <LayoutDashboard className="w-4 h-4 text-emerald-600" />
+                  <span className="hidden md:inline">Dashboard</span>
+                </Link>
+                <Link
+                  to="/student/assessments"
+                  className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                    location.pathname.startsWith('/student/assessments')
+                      ? 'text-emerald-700 bg-emerald-50 font-semibold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <FileCode className="w-4 h-4 text-emerald-600" />
+                  <span className="hidden md:inline">My Exams</span>
                 </Link>
                 <Link
                   to="/student/privacy"
-                  className="flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-brand-400 transition-colors"
+                  className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                    location.pathname.startsWith('/student/privacy')
+                      ? 'text-emerald-700 bg-emerald-50 font-semibold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
                 >
-                  <Shield className="w-4 h-4 text-sky-400" />
-                  <span>Privacy & DSAR</span>
-                </Link>
-                <Link
-                  to="/student/profile"
-                  className="flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-brand-400 transition-colors"
-                >
-                  <User className="w-4 h-4 text-emerald-400" />
-                  <span>My Profile</span>
+                  <Shield className="w-4 h-4 text-sky-600" />
+                  <span className="hidden md:inline">Privacy</span>
                 </Link>
               </>
             )}
 
-            <Link
-              to="/health"
-              className="flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-brand-400 transition-colors"
-            >
-              <Activity className="w-4 h-4 text-blue-400" />
-              <span>Health</span>
-            </Link>
-
-            {/* Auth Actions */}
+            {/* Auth / Account Controls */}
             {isAuthenticated && user ? (
-              <div className="flex items-center gap-2 sm:gap-3 pl-2 sm:pl-3 border-l border-slate-800">
-                <div className="hidden md:flex flex-col text-right">
-                  <span className="text-xs font-medium text-slate-200">{user.email}</span>
-                  <span className="text-[10px] font-mono text-brand-400">{user.role}</span>
-                </div>
-                <Badge variant={user.role === 'ADMIN' ? 'info' : 'success'} size="sm">
-                  {user.role}
-                </Badge>
-                <Button variant="ghost" size="sm" onClick={handleLogout} className="p-1.5 text-slate-400 hover:text-red-400">
-                  <LogOut className="w-4 h-4" />
-                </Button>
+              <div className="relative ml-2 pl-2 border-l border-slate-200">
+                <button
+                  onClick={() => setAccountMenuOpen(!accountMenuOpen)}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors text-left"
+                >
+                  <div className="flex flex-col text-right">
+                    <span className="text-xs font-bold text-slate-900 leading-tight">
+                      {user.display_name || user.first_name || (user.role === 'ADMIN' ? 'Admin' : user.email.split('@')[0])}
+                    </span>
+                    <span className="text-[10px] font-medium text-slate-500 leading-none mt-0.5">
+                      {user.role === 'ADMIN' ? 'Admin' : user.role}
+                    </span>
+                  </div>
+                  {user.admin_id && (
+                    <span className="hidden sm:inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                      {user.admin_id}
+                    </span>
+                  )}
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                </button>
+
+                {/* Account Dropdown Menu */}
+                {accountMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-slate-200 py-1.5 z-50 divide-y divide-slate-100">
+                    <div className="px-3.5 py-2.5">
+                      <div className="text-xs font-bold text-slate-900">
+                        {user.display_name || user.first_name || 'Admin'}
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-medium mt-0.5">
+                        {user.role === 'ADMIN' ? 'Admin' : user.role}
+                      </div>
+                      {user.admin_id && (
+                        <div className="text-[11px] text-emerald-700 font-mono font-semibold mt-1">
+                          Admin ID: {user.admin_id}
+                        </div>
+                      )}
+                    </div>
+
+                    {user.role === 'ADMIN' && (
+                      <div className="py-1">
+                        <Link
+                          to="/admin/administrators"
+                          onClick={() => setAccountMenuOpen(false)}
+                          className="flex items-center gap-2 px-3.5 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-emerald-700 font-medium"
+                        >
+                          <ShieldCheck className="w-4 h-4 text-purple-600" />
+                          <span>Administrators</span>
+                        </Link>
+                      </div>
+                    )}
+
+                    <div className="py-1">
+                      <button
+                        onClick={() => {
+                          setAccountMenuOpen(false);
+                          handleLogout();
+                        }}
+                        className="w-full flex items-center gap-2 px-3.5 py-2 text-xs text-rose-600 hover:bg-rose-50 font-medium"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        <span>Sign Out</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <Link to="/login">
-                <Button variant="primary" size="sm">
+                <Button variant="primary" size="sm" className="flex items-center gap-1.5">
                   <LogIn className="w-3.5 h-3.5" />
-                  Sign In
+                  <span>Sign In</span>
                 </Button>
               </Link>
             )}

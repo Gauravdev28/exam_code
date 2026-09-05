@@ -1,13 +1,13 @@
 import React, { createContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { User, LoginCredentials } from '../types/auth';
-import { loginUser, logoutUser, fetchCurrentUser } from '../api/auth';
+import { loginUser, logoutUser, fetchCurrentUser, initCsrfToken } from '../api/auth';
 
 export interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
-  login: (credentials: LoginCredentials) => Promise<void>;
+  login: (credentials: LoginCredentials) => Promise<User>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   clearError: () => void;
@@ -36,16 +36,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     refreshUser();
+
+    const handleSessionExpired = () => {
+      setUser(null);
+      setIsLoading(false);
+    };
+
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+    return () => {
+      window.removeEventListener('auth:session-expired', handleSessionExpired);
+    };
   }, [refreshUser]);
 
-  const login = async (credentials: LoginCredentials) => {
+  const login = async (credentials: LoginCredentials): Promise<User> => {
     setIsLoading(true);
     setError(null);
     try {
+      // Initialize CSRF cookie prior to authentication attempt
+      await initCsrfToken();
       const res = await loginUser(credentials);
       if (res.data?.user) {
         setUser(res.data.user);
+        return res.data.user;
       }
+      throw new Error('User profile data missing in authentication response.');
     } catch (err: any) {
       const msg = err.error?.message || err.message || 'Login failed. Please check your credentials.';
       setError(msg);

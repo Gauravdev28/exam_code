@@ -184,6 +184,16 @@ class QuestionVersionPublicDetailSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    def to_representation(self, instance):
+        import copy
+        ret = super().to_representation(instance)
+        if isinstance(ret.get('type_config'), dict):
+            safe_type_config = copy.deepcopy(ret['type_config'])
+            for private_key in ['admin_notes', 'internal_notes', 'solution_notes', 'secret']:
+                safe_type_config.pop(private_key, None)
+            ret['type_config'] = safe_type_config
+        return ret
+
 
 class QuestionVersionSummarySerializer(serializers.ModelSerializer):
     tags = TagSerializer(many=True, read_only=True)

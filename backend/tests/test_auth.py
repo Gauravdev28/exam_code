@@ -277,3 +277,107 @@ async def test_websocket_auth_rejects_unauthenticated_connection():
     # Unauthenticated connection must be closed by consumer with code 4001
     assert connected is False
     assert code == 4001
+
+
+# ==============================================================================
+# 5. Contract & Regression Verification (Section 14)
+# ==============================================================================
+
+@pytest.mark.django_db
+class TestAuthenticationContractAndRegressions:
+    def test_admin_login_with_email_returns_euad_gaurav_099(self, api_client, db):
+        # Create primary admin with email
+        admin = User.objects.create_superuser(
+            email="gauravagldeveloper28@gmail.com",
+            password="SecureDevAdminPass2026!",
+            role=Role.ADMIN
+        )
+        assert admin.admin_id == "EUAD-GAURAV-099"
+
+        # 1. Login via Email
+        login_url = reverse('accounts:login')
+        res = api_client.post(login_url, {
+            "identifier": "gauravagldeveloper28@gmail.com",
+            "password": "SecureDevAdminPass2026!"
+        })
+        assert res.status_code == 200
+        user_data = res.json()['data']['user']
+        assert user_data['admin_id'] == "EUAD-GAURAV-099"
+        assert user_data['display_name'] == "Gaurav Agarwal"
+        assert user_data['role'] == "ADMIN"
+
+        # 2. Session /me endpoint
+        me_res = api_client.get(reverse('accounts:current-user'))
+        assert me_res.status_code == 200
+        me_data = me_res.json()['data']
+        assert me_data['admin_id'] == "EUAD-GAURAV-099"
+        assert me_data['display_name'] == "Gaurav Agarwal"
+
+    def test_admin_id_cannot_be_used_as_login_identifier(self, api_client, db):
+        # Admin ID must NEVER become a login credential
+        User.objects.create_superuser(
+            email="admin@codeguard.local",
+            password="AdminPassword2026!",
+            role=Role.ADMIN
+        )
+        res = api_client.post(reverse('accounts:login'), {
+            "identifier": "EUAD-GAURAV-099",
+            "password": "AdminPassword2026!"
+        })
+        assert res.status_code == 401
+        assert res.json()['error']['code'] in ['ADMIN_ID_NOT_LOGIN_CREDENTIAL', 'INVALID_CREDENTIALS']
+
+    def test_student_login_by_email_and_euid(self, api_client, db):
+        from apps.accounts.models import StudentProfile
+        student = User.objects.create_user(
+            email="candidate.auth@institution.edu",
+            password="ValidPass2026!",
+            role=Role.STUDENT
+        )
+        StudentProfile.objects.create(
+            user=student,
+            roll_number="CS2026AUTH",
+            euid="CG-CS2026AUTH"
+        )
+
+        login_url = reverse('accounts:login')
+
+        # 1. Login via Email
+        res_email = api_client.post(login_url, {
+            "identifier": "candidate.auth@institution.edu",
+            "password": "ValidPass2026!"
+        })
+        assert res_email.status_code == 200
+        assert res_email.json()['data']['user']['role'] == "STUDENT"
+
+        # 2. Login via EUID
+        res_euid = api_client.post(login_url, {
+            "identifier": "CG-CS2026AUTH",
+            "password": "ValidPass2026!"
+        })
+        assert res_euid.status_code == 200
+        assert res_euid.json()['data']['user']['role'] == "STUDENT"
+
+        # 3. Roll Number directly must FAIL (not a login identifier)
+        res_roll = api_client.post(login_url, {
+            "identifier": "CS2026AUTH",
+            "password": "ValidPass2026!"
+        })
+        assert res_roll.status_code == 401
+        assert res_roll.json()['error']['code'] == 'INVALID_CREDENTIALS'
+
+    def test_proctor_login_flow(self, api_client, db):
+        User.objects.create_user(
+            email="invigilator.proctor@institution.edu",
+            password="ProctorPassword2026!",
+            role=Role.PROCTOR
+        )
+        res = api_client.post(reverse('accounts:login'), {
+            "identifier": "invigilator.proctor@institution.edu",
+            "password": "ProctorPassword2026!"
+        })
+        assert res.status_code == 200
+        data = res.json()['data']['user']
+        assert data['role'] == "PROCTOR"
+        assert data['email'] == "invigilator.proctor@institution.edu"
+

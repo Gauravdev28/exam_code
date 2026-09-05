@@ -2,16 +2,50 @@ import io
 import re
 import csv
 import logging
+import secrets
+import string
+import uuid
 from typing import List, Dict, Tuple, Any, Optional
 import openpyxl
 from django.db import transaction, IntegrityError
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.contrib.auth.password_validation import validate_password
+from django.contrib.sessions.models import Session
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-from .models import User, StudentProfile, AuditLog, Role
+from .models import User, StudentProfile, AuditLog, Role, AdminSequence
 
 logger = logging.getLogger(__name__)
+
+class AdminIdService:
+    """
+    Authoritative Admin ID generation service.
+    Primary Admin ID: EUAD-GAURAV-099
+    Secondary Admin IDs: CG-ADM-000002, CG-ADM-000003, ...
+    Note: CG-ADM-000001 is permanently retired and will never be assigned.
+    Uses select_for_update() on AdminSequence to prevent race conditions during concurrent creation.
+    """
+    @classmethod
+    def generate_next_admin_id(cls) -> str:
+        with transaction.atomic():
+            seq, _ = AdminSequence.objects.select_for_update().get_or_create(
+                id=uuid.UUID('00000000-0000-0000-0000-000000000001'),
+                defaults={'last_sequence': 2}
+            )
+            # Never start below 2 (CG-ADM-000001 is retired)
+            current = max(2, seq.last_sequence)
+            while True:
+                candidate = f"CG-ADM-{current:06d}"
+                if candidate == 'CG-ADM-000001':
+                    current += 1
+                    continue
+                if not User.objects.filter(admin_id=candidate).exists():
+                    break
+                current += 1
+            seq.last_sequence = current + 1
+            seq.save(update_fields=['last_sequence', 'updated_at'])
+            return candidate
 
 class EUIDService:
     """
@@ -121,7 +155,8 @@ class StudentService:
                     email=clean_email,
                     password=clean_roll,
                     role=Role.STUDENT,
-                    is_active=True
+                    is_active=True,
+                    first_login_required=True
                 )
 
                 profile = StudentProfile.objects.create(
@@ -191,6 +226,7 @@ class StudentService:
         student_profile: StudentProfile,
         is_active: bool,
         actor: Optional[User] = None,
+        reason: str = "",
         request=None
     ) -> StudentProfile:
         user = student_profile.user
@@ -200,17 +236,94 @@ class StudentService:
         user.is_active = is_active
         user.save(update_fields=['is_active', 'updated_at'])
 
+        if not is_active:
+            AccountSecurityService.revoke_user_sessions(user.id)
+
         action = "STUDENT_ENABLED" if is_active else "STUDENT_DISABLED"
         AuditService.log(
             action=action,
             actor=actor,
             target_type="StudentProfile",
             target_id=student_profile.id,
-            metadata={"is_active": is_active, "email": user.email, "roll_number": student_profile.roll_number},
+            metadata={
+                "actor_name": actor.display_name if actor else "SYSTEM",
+                "actor_admin_id": getattr(actor, 'admin_id', ""),
+                "target_identity": student_profile.euid,
+                "target_roll_number": student_profile.roll_number,
+                "target_email": user.email,
+                "target_role": Role.STUDENT,
+                "is_active": is_active,
+                "reason": reason.strip() if reason else ("Account enabled by administrator." if is_active else "Account disabled by administrator."),
+                "result": "SUCCESS"
+            },
             request=request
         )
 
         return student_profile
+
+    @staticmethod
+    def delete_student(
+        student_profile: StudentProfile,
+        actor: Optional[User] = None,
+        request=None
+    ) -> None:
+        """
+        Delete a student account while strictly respecting Phase 9 retention and legal holds.
+        If the student has examination attempts, results, retention records, or active legal holds,
+        physical deletion is rejected with a clear architectural explanation.
+        """
+        user = student_profile.user
+
+        from apps.assessments.models import TestAttempt
+        from apps.retention.models import LegalHold, LegalHoldStatus, RetentionRecord, ExportJob, ExportStatus
+        from apps.results.models import AssessmentResult
+        from django.db.models import Q
+
+        has_attempts = TestAttempt.objects.filter(student=user).exists()
+        has_results = AssessmentResult.objects.filter(student=user).exists()
+        has_retention = RetentionRecord.objects.filter(attempt__student=user).exists()
+        has_legal_hold = LegalHold.objects.filter(
+            Q(student=user) | Q(attempt__student=user),
+            status=LegalHoldStatus.ACTIVE
+        ).exists()
+
+        if has_attempts or has_results or has_retention or has_legal_hold:
+            raise DRFValidationError({
+                "detail": "Deletion cannot be completed yet because this account has retained examination records / an active legal hold."
+            })
+
+        has_in_flight_export = ExportJob.objects.filter(
+            student=user,
+            status__in=[ExportStatus.REQUESTED, ExportStatus.SNAPSHOT_PENDING, ExportStatus.GENERATING]
+        ).exists()
+        if has_in_flight_export:
+            raise DRFValidationError({
+                "detail": "Deletion cannot be completed while a DSAR data export archive is actively generating."
+            })
+
+        AccountSecurityService.revoke_user_sessions(user.id)
+
+        AuditService.log(
+            action="STUDENT_DELETED",
+            actor=actor,
+            target_type="StudentProfile",
+            target_id=str(student_profile.id),
+            metadata={
+                "actor_name": actor.display_name if actor else "SYSTEM",
+                "actor_admin_id": getattr(actor, 'admin_id', ""),
+                "target_identity": student_profile.euid,
+                "target_roll_number": student_profile.roll_number,
+                "target_email": user.email,
+                "target_role": Role.STUDENT,
+                "reason": "Student account removed by authorized administrator",
+                "result": "SUCCESS"
+            },
+            request=request
+        )
+
+        with transaction.atomic():
+            student_profile.delete()
+            user.delete()
 
 
 class ImportService:
@@ -468,3 +581,238 @@ class ImportService:
             "created_students": created_students,
             "failed_rows": failed_rows
         }
+
+
+class AccountSecurityService:
+    """
+    Domain service orchestrating administrative password resets, session invalidation,
+    and high-security credential lifecycle operations.
+    """
+
+    @staticmethod
+    def generate_secure_temporary_password(length: int = 14) -> str:
+        """
+        Generates a cryptographically random, high-entropy temporary password
+        meeting all Django complexity standards (upper, lower, digit, special character).
+        """
+        alphabet = string.ascii_letters + string.digits + "!@#$%&*+?"
+        while True:
+            password = ''.join(secrets.choice(alphabet) for _ in range(length))
+            if (any(c.islower() for c in password)
+                    and any(c.isupper() for c in password)
+                    and any(c.isdigit() for c in password)
+                    and any(c in "!@#$%&*+?" for c in password)):
+                return password
+
+    @classmethod
+    def revoke_user_sessions(cls, user_id: Any) -> int:
+        """
+        Hard-revokes all active Django sessions associated with the given user ID.
+        """
+        revoked_count = 0
+        try:
+            for session in Session.objects.all():
+                try:
+                    data = session.get_decoded()
+                    if str(data.get('_auth_user_id')) == str(user_id):
+                        session.delete()
+                        revoked_count += 1
+                except Exception:
+                    continue
+        except Exception as e:
+            logger.warning("Session revocation error for user %s: %s", user_id, str(e))
+        return revoked_count
+
+    @classmethod
+    def reset_student_password(
+        cls,
+        student_profile: StudentProfile,
+        temporary_password: Optional[str] = None,
+        reason: str = "",
+        actor: Optional[User] = None,
+        request=None
+    ) -> str:
+        """
+        Admin resets a student's password.
+        1. Accepts or generates secure temporary password.
+        2. Validates against Django password rules.
+        3. Updates user hash and flags first_login_required.
+        4. Hard-revokes active student sessions.
+        5. Writes immutable AuditLog (zero sensitive credential leakage).
+        6. Returns temporary password for one-time display.
+        """
+        user = student_profile.user
+        clean_reason = reason.strip() if reason else ""
+        if not clean_reason:
+            raise DRFValidationError({"reason": "An administrative reason is required for password reset."})
+
+        temp_pwd = temporary_password.strip() if temporary_password else cls.generate_secure_temporary_password()
+        validate_password(temp_pwd, user=user)
+
+        with transaction.atomic():
+            user.set_password(temp_pwd)
+            user.first_login_required = True
+            user.save(update_fields=['password', 'first_login_required', 'updated_at'])
+
+            student_profile.first_login_required = True
+            student_profile.save(update_fields=['first_login_required', 'updated_at'])
+
+            cls.revoke_user_sessions(user.id)
+
+            AuditService.log(
+                action="PASSWORD_RESET",
+                actor=actor,
+                target_type="StudentProfile",
+                target_id=str(student_profile.id),
+                metadata={
+                    "actor_name": actor.display_name if actor else "SYSTEM",
+                    "actor_admin_id": getattr(actor, 'admin_id', ""),
+                    "target_identity": student_profile.euid,
+                    "target_roll_number": student_profile.roll_number,
+                    "target_email": user.email,
+                    "target_role": Role.STUDENT,
+                    "reason": clean_reason,
+                    "result": "SUCCESS"
+                },
+                request=request
+            )
+
+        return temp_pwd
+
+    @classmethod
+    def reset_admin_password(
+        cls,
+        target_admin: User,
+        temporary_password: Optional[str] = None,
+        reason: str = "",
+        actor: Optional[User] = None,
+        request=None
+    ) -> str:
+        """
+        Admin resets another administrator's password.
+        1. Rejects self-reset (directing to profile security settings).
+        2. Accepts or generates secure temporary password.
+        3. Validates against Django password rules.
+        4. Updates admin password hash and flags first_login_required.
+        5. Hard-revokes active admin sessions without affecting actor's session.
+        6. Writes immutable AuditLog.
+        7. Returns temporary password for one-time display.
+        """
+        if target_admin.role != Role.ADMIN:
+            raise DRFValidationError({"detail": "Target user is not an administrator."})
+
+        if actor and str(actor.id) == str(target_admin.id):
+            raise DRFValidationError({"detail": "Use Change Password in your account security settings to change your own password."})
+
+        # If target is primary admin, only primary admin can reset
+        if target_admin.is_primary_admin and actor and not actor.is_primary_admin:
+            raise DRFValidationError({"detail": "Primary Administrator account cannot be reset by secondary administrators."})
+
+        clean_reason = reason.strip() if reason else ""
+        if not clean_reason:
+            raise DRFValidationError({"reason": "An administrative reason is required for password reset."})
+
+        temp_pwd = temporary_password.strip() if temporary_password else cls.generate_secure_temporary_password()
+        validate_password(temp_pwd, user=target_admin)
+
+        with transaction.atomic():
+            target_admin.set_password(temp_pwd)
+            target_admin.first_login_required = True
+            target_admin.save(update_fields=['password', 'first_login_required', 'updated_at'])
+
+            cls.revoke_user_sessions(target_admin.id)
+
+            AuditService.log(
+                action="PASSWORD_RESET",
+                actor=actor,
+                target_type="User",
+                target_id=str(target_admin.id),
+                metadata={
+                    "actor_name": actor.display_name if actor else "SYSTEM",
+                    "actor_admin_id": getattr(actor, 'admin_id', ""),
+                    "target_identity": target_admin.admin_id,
+                    "target_email": target_admin.email,
+                    "target_role": Role.ADMIN,
+                    "reason": clean_reason,
+                    "result": "SUCCESS"
+                },
+                request=request
+            )
+
+        return temp_pwd
+
+    @classmethod
+    def update_administrator(
+        cls,
+        target_admin: User,
+        display_name: Optional[str] = None,
+        email: Optional[str] = None,
+        actor: Optional[User] = None,
+        request=None
+    ) -> User:
+        """
+        Decommissioned: Administrator identity is strictly immutable and cannot be updated.
+        """
+        raise DRFValidationError({"detail": "Administrator identity is strictly immutable and cannot be updated."})
+
+    @classmethod
+    def delete_administrator(
+        cls,
+        target_admin: User,
+        actor: Optional[User] = None,
+        request=None
+    ) -> None:
+        """
+        Safely delete a secondary administrator account.
+        Primary Admin and self cannot be deleted.
+        Checks active duties, active legal holds, and retention policies.
+        Revokes sessions, logs immutable audit snapshot, and removes user.
+        """
+        if target_admin.role != Role.ADMIN:
+            raise DRFValidationError({"detail": "Target user is not an administrator."})
+
+        if target_admin.is_primary_admin:
+            raise DRFValidationError({"detail": "The Primary Administrator account cannot be deleted."})
+
+        if actor and str(actor.id) == str(target_admin.id):
+            raise DRFValidationError({"detail": "Cannot delete your own administrator account."})
+
+        from apps.invigilation.models import ProctorDutySession, ProctorAssignment
+        from apps.retention.models import LegalHold, LegalHoldStatus, RetentionPolicy
+
+        if ProctorDutySession.objects.filter(proctor=target_admin, is_active=True).exists():
+            raise DRFValidationError({"detail": "Cannot delete administrator with active proctor duty sessions. End active sessions first."})
+
+        if ProctorAssignment.objects.filter(proctor=target_admin, is_active=True).exists():
+            raise DRFValidationError({"detail": "Cannot delete administrator assigned to active proctoring cohorts. Deactivate assignments first."})
+
+        if LegalHold.objects.filter(placed_by=target_admin, status=LegalHoldStatus.ACTIVE).exists():
+            raise DRFValidationError({"detail": "Cannot delete administrator with active placed legal holds. Release or reassign holds first."})
+
+        if RetentionPolicy.objects.filter(created_by=target_admin, is_active=True).exists():
+            raise DRFValidationError({"detail": "Cannot delete administrator with active created retention policies."})
+
+        cls.revoke_user_sessions(target_admin.id)
+
+        AuditService.log(
+            action="ADMIN_DELETED",
+            actor=actor,
+            target_type="User",
+            target_id=str(target_admin.id),
+            metadata={
+                "actor_name": actor.display_name if actor else "SYSTEM",
+                "actor_admin_id": getattr(actor, 'admin_id', ""),
+                "target_identity": target_admin.admin_id,
+                "target_name": target_admin.display_name,
+                "target_email": target_admin.email,
+                "target_role": Role.ADMIN,
+                "reason": "Secondary administrator account deleted by Primary Administrator",
+                "result": "SUCCESS"
+            },
+            request=request
+        )
+
+        with transaction.atomic():
+            target_admin.delete()
+
+

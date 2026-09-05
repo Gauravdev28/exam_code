@@ -4,6 +4,8 @@ import { getAdminAssessments, archiveAssessment, deleteAssessment } from '../../
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
+import { PageHeader } from '../../components/common/PageHeader';
+import { Tabs, TabItem } from '../../components/common/Tabs';
 import { AssessmentAssignmentsModal } from './AssessmentAssignmentsModal';
 import {
   FileText,
@@ -95,65 +97,54 @@ export const AdminAssessmentsPage: React.FC = () => {
 
   const totalPages = Math.ceil(totalCount / pageSize);
 
+  const statusTabs: TabItem<'ALL' | 'PUBLISHED' | 'DRAFT' | 'ARCHIVED'>[] = [
+    { id: 'ALL', label: 'ALL' },
+    { id: 'PUBLISHED', label: 'PUBLISHED' },
+    { id: 'DRAFT', label: 'DRAFTS' },
+    { id: 'ARCHIVED', label: 'ARCHIVED' },
+  ];
+
   return (
     <div className="container mx-auto px-4 py-8 space-y-6 max-w-7xl">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-900 pb-6">
-        <div>
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-brand-500/10 text-brand-400 border border-brand-500/20">
-              <FileText className="w-6 h-6" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-white tracking-tight">Assessments & Exams</h1>
-              <p className="text-sm text-slate-400">
-                Design, schedule, assign, and publish technical evaluations from the Question Bank
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <Link to="/admin/assessments/create">
-          <Button variant="primary" size="md">
-            <Plus className="w-4 h-4 mr-2" />
-            Create Assessment
-          </Button>
-        </Link>
-      </div>
+      <PageHeader
+        icon={<FileText className="w-6 h-6" />}
+        title="Assessments & Exams"
+        description="Design, schedule, assign, and publish technical evaluations from the Question Bank"
+        actions={
+          <Link to="/admin/assessments/create">
+            <Button variant="primary" size="md">
+              <Plus className="w-4 h-4 mr-2" />
+              Create Assessment
+            </Button>
+          </Link>
+        }
+      />
 
       {/* Tabs & Search Bar */}
-      <Card className="p-4 space-y-4 border-slate-800/80 bg-slate-950/60">
+      <Card className="p-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           {/* Status Tabs */}
-          <div className="flex items-center gap-2">
-            {(['ALL', 'PUBLISHED', 'DRAFT', 'ARCHIVED'] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => {
-                  setActiveTab(tab);
-                  setCurrentPage(1);
-                }}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all ${
-                  activeTab === tab
-                    ? 'bg-brand-500/20 text-brand-300 border border-brand-500/40 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-                }`}
-              >
-                {tab === 'DRAFT' ? 'DRAFTS' : tab}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            variant="pills"
+            tabs={statusTabs}
+            activeTab={activeTab}
+            onChange={(tab) => {
+              setActiveTab(tab);
+              setCurrentPage(1);
+            }}
+          />
 
           {/* Search Input */}
           <form onSubmit={handleSearchSubmit} className="flex items-center gap-2 max-w-md w-full sm:w-auto">
             <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 placeholder="Search assessment title, description..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                className="w-full pl-9 pr-3.5 py-2 rounded-lg bg-white border border-slate-300 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
               />
             </div>
             <Button type="submit" variant="secondary" size="sm">
@@ -165,22 +156,22 @@ export const AdminAssessmentsPage: React.FC = () => {
 
       {/* Error Notice */}
       {errorMessage && (
-        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-3 text-red-300 text-sm">
-          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-3 text-rose-800 text-sm">
+          <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
           <span>{errorMessage}</span>
         </div>
       )}
 
       {/* Assessment Roster Table */}
-      <Card className="overflow-hidden border-slate-800/80">
+      <Card className="overflow-hidden p-0">
         {isLoading ? (
           <div className="py-16 flex flex-col items-center justify-center space-y-3">
-            <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs text-slate-400 font-mono">Loading assessment catalog...</p>
+            <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs text-slate-500 font-mono">Loading assessment catalog...</p>
           </div>
         ) : assessments.length === 0 ? (
           <div className="py-16 text-center space-y-3">
-            <p className="text-slate-400 text-sm">No assessments found matching criteria.</p>
+            <p className="text-slate-500 text-sm">No assessments found matching criteria.</p>
             <Link to="/admin/assessments/create">
               <Button variant="secondary" size="sm">
                 Create First Assessment
@@ -190,30 +181,30 @@ export const AdminAssessmentsPage: React.FC = () => {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs font-mono">
-              <thead className="bg-slate-900/90 text-slate-400 border-b border-slate-800 uppercase tracking-wider">
+              <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 uppercase tracking-wider font-semibold">
                 <tr>
-                  <th className="px-4 py-3">Assessment Title</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Schedule Window</th>
-                  <th className="px-4 py-3">Duration</th>
-                  <th className="px-4 py-3">Questions</th>
-                  <th className="px-4 py-3">Points</th>
-                  <th className="px-4 py-3">Assigned Students</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
+                  <th className="px-4 py-3.5">Assessment Title</th>
+                  <th className="px-4 py-3.5">Status</th>
+                  <th className="px-4 py-3.5">Schedule Window</th>
+                  <th className="px-4 py-3.5">Duration</th>
+                  <th className="px-4 py-3.5">Questions</th>
+                  <th className="px-4 py-3.5">Points</th>
+                  <th className="px-4 py-3.5">Assigned Students</th>
+                  <th className="px-4 py-3.5 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 text-slate-300">
+              <tbody className="divide-y divide-slate-100 text-slate-700">
                 {assessments.map((a) => {
                   const isDraft = a.status === 'DRAFT';
                   const isPublished = a.status === 'PUBLISHED';
 
                   return (
-                    <tr key={a.id} className="hover:bg-slate-900/40 transition-colors">
+                    <tr key={a.id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="px-4 py-3.5 max-w-xs">
-                        <div className="font-sans font-bold text-slate-100 text-sm truncate">
+                        <div className="font-sans font-bold text-slate-900 text-sm truncate">
                           {a.title}
                         </div>
-                        <div className="text-[10px] text-slate-400">
+                        <div className="text-[10px] text-slate-500">
                           Created by: {a.created_by_email || 'Admin'}
                         </div>
                       </td>
@@ -230,25 +221,25 @@ export const AdminAssessmentsPage: React.FC = () => {
                           {a.status}
                         </Badge>
                       </td>
-                      <td className="px-4 py-3.5 text-[11px] text-slate-300">
-                        <div className="flex items-center gap-1 text-slate-400">
-                          <Calendar className="w-3.5 h-3.5 text-brand-400" />
+                      <td className="px-4 py-3.5 text-[11px] text-slate-600">
+                        <div className="flex items-center gap-1 text-slate-700">
+                          <Calendar className="w-3.5 h-3.5 text-emerald-600" />
                           <span>{new Date(a.start_datetime).toLocaleDateString()}</span>
                         </div>
-                        <div className="text-[10px] text-slate-500">
+                        <div className="text-[10px] text-slate-400">
                           to {new Date(a.end_datetime).toLocaleDateString()}
                         </div>
                       </td>
                       <td className="px-4 py-3.5">
-                        <span className="flex items-center gap-1 text-slate-300">
-                          <Clock className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="flex items-center gap-1 text-slate-700 font-medium">
+                          <Clock className="w-3.5 h-3.5 text-amber-600" />
                           {a.duration_minutes}m
                         </span>
                       </td>
-                      <td className="px-4 py-3.5 text-slate-200 font-bold">
+                      <td className="px-4 py-3.5 text-slate-900 font-bold">
                         {a.question_count} Qs
                       </td>
-                      <td className="px-4 py-3.5 font-bold text-brand-400">
+                      <td className="px-4 py-3.5 font-bold text-emerald-700">
                         {a.total_points} pts
                       </td>
                       <td className="px-4 py-3.5">
@@ -257,23 +248,23 @@ export const AdminAssessmentsPage: React.FC = () => {
                             setSelectedAssessmentForAssign(a);
                             setIsAssignModalOpen(true);
                           }}
-                          className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-800/80 border border-slate-700 text-purple-300 hover:bg-slate-800 text-xs"
+                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 text-xs font-medium transition-colors"
                         >
-                          <Users className="w-3.5 h-3.5 text-purple-400" />
+                          <Users className="w-3.5 h-3.5 text-purple-600" />
                           <span>{a.assigned_count} Assigned</span>
                         </button>
                       </td>
                       <td className="px-4 py-3.5 text-right space-x-1 whitespace-nowrap">
                         <Link to={`/admin/assessments/${a.id}/results`}>
                           <Button variant="secondary" size="sm" title="Assessment Results & Analytics">
-                            <Award className="w-3.5 h-3.5 mr-1 text-amber-400" />
+                            <Award className="w-3.5 h-3.5 mr-1 text-amber-600" />
                             Results
                           </Button>
                         </Link>
 
                         <Link to={`/admin/assessments/${a.id}/proctoring`}>
                           <Button variant="secondary" size="sm" title="AI Proctoring Dashboard">
-                            <ShieldAlert className="w-3.5 h-3.5 mr-1 text-indigo-400" />
+                            <ShieldAlert className="w-3.5 h-3.5 mr-1 text-indigo-600" />
                             Proctoring
                           </Button>
                         </Link>
@@ -292,7 +283,7 @@ export const AdminAssessmentsPage: React.FC = () => {
                             onClick={() => handleArchive(a.id)}
                             title="Archive Assessment"
                           >
-                            <Archive className="w-3.5 h-3.5 text-slate-500 hover:text-red-400" />
+                            <Archive className="w-3.5 h-3.5 text-slate-500 hover:text-rose-600" />
                           </Button>
                         )}
 
@@ -303,7 +294,7 @@ export const AdminAssessmentsPage: React.FC = () => {
                             onClick={() => handleDelete(a.id)}
                             title="Delete Draft"
                           >
-                            <Trash2 className="w-3.5 h-3.5 text-slate-500 hover:text-red-400" />
+                            <Trash2 className="w-3.5 h-3.5 text-slate-500 hover:text-rose-600" />
                           </Button>
                         )}
                       </td>
@@ -317,8 +308,8 @@ export const AdminAssessmentsPage: React.FC = () => {
 
         {/* Pagination Footer */}
         {totalPages > 1 && (
-          <div className="p-4 border-t border-slate-800/80 flex items-center justify-between text-xs font-mono">
-            <span className="text-slate-400">
+          <div className="p-4 border-t border-slate-200 flex items-center justify-between text-xs font-mono">
+            <span className="text-slate-500">
               Showing {(currentPage - 1) * pageSize + 1} to{' '}
               {Math.min(currentPage * pageSize, totalCount)} of {totalCount} assessments
             </span>
@@ -332,7 +323,7 @@ export const AdminAssessmentsPage: React.FC = () => {
                 <ChevronLeft className="w-3.5 h-3.5 mr-1" />
                 Previous
               </Button>
-              <span className="text-slate-300 font-bold px-2">
+              <span className="text-slate-700 font-bold px-2">
                 {currentPage} / {totalPages}
               </span>
               <Button

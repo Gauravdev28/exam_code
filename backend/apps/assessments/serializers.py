@@ -135,6 +135,13 @@ class CreateAssessmentSerializer(serializers.Serializer):
     randomize_options = serializers.BooleanField(default=False)
     result_visibility = serializers.ChoiceField(choices=ResultVisibility.choices, default=ResultVisibility.AFTER_DEADLINE)
 
+    def validate(self, attrs):
+        start = attrs.get('start_datetime')
+        end = attrs.get('end_datetime')
+        if start and end and end <= start:
+            raise serializers.ValidationError({"end_datetime": "End datetime must be strictly after start datetime."})
+        return attrs
+
 
 class UpdateAssessmentSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=255, required=False)
@@ -150,6 +157,13 @@ class UpdateAssessmentSerializer(serializers.Serializer):
     randomize_questions = serializers.BooleanField(required=False)
     randomize_options = serializers.BooleanField(required=False)
     result_visibility = serializers.ChoiceField(choices=ResultVisibility.choices, required=False)
+
+    def validate(self, attrs):
+        start = attrs.get('start_datetime')
+        end = attrs.get('end_datetime')
+        if start and end and end <= start:
+            raise serializers.ValidationError({"end_datetime": "End datetime must be strictly after start datetime."})
+        return attrs
 
 
 class AddQuestionToAssessmentSerializer(serializers.Serializer):

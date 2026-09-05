@@ -137,3 +137,78 @@ export const getTags = async (): Promise<APIResponse<Tag[]>> => {
   const res = await apiClient.get<APIResponse<Tag[]>>('/admin/tags/');
   return res.data;
 };
+
+export const downloadImportTemplate = async (format: 'csv' | 'xlsx' = 'csv'): Promise<Blob> => {
+  const res = await apiClient.get(`/admin/questions/import/template/?format=${format}`, {
+    responseType: 'blob',
+  });
+  return res.data;
+};
+
+export const previewSpreadsheetImport = async (file: File): Promise<APIResponse<any>> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await apiClient.post<APIResponse<any>>('/admin/questions/import/preview/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data;
+};
+
+export const confirmSpreadsheetImport = async (rows: any[]): Promise<APIResponse<any>> => {
+  const res = await apiClient.post<APIResponse<any>>('/admin/questions/import/confirm/', { rows });
+  return res.data;
+};
+
+export const extractQuestionFromImage = async (imageFile: File): Promise<APIResponse<any>> => {
+  const formData = new FormData();
+  formData.append('image', imageFile);
+  const res = await apiClient.post<APIResponse<any>>('/admin/questions/extract-image/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data;
+};
+
+export interface QuestionUsageInfo {
+  is_deletable: boolean;
+  reasons: string[];
+  assessments_count: number;
+  snapshots_count: number;
+  answers_count: number;
+  legal_holds_count: number;
+}
+
+export const getQuestionUsage = async (
+  questionId: string
+): Promise<APIResponse<QuestionUsageInfo>> => {
+  const res = await apiClient.get<APIResponse<QuestionUsageInfo>>(`/admin/questions/${questionId}/usage/`);
+  return res.data;
+};
+
+export interface RunSandboxPayload {
+  source_code: string;
+  language: string;
+  stdin?: string;
+  expected_output?: string;
+  cpu_time_limit_ms?: number;
+  memory_limit_mb?: number;
+}
+
+export interface RunSandboxResult {
+  status_id: number;
+  status_description: string;
+  stdout: string | null;
+  stderr: string | null;
+  compile_output: string | null;
+  time: number;
+  memory: number;
+  passed: boolean | null;
+  expected_output?: string;
+}
+
+export const runSandboxTest = async (
+  payload: RunSandboxPayload
+): Promise<APIResponse<RunSandboxResult>> => {
+  const res = await apiClient.post<APIResponse<RunSandboxResult>>('/admin/questions/run-sandbox/', payload);
+  return res.data;
+};
+

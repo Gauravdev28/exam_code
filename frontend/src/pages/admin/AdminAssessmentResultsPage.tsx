@@ -23,9 +23,11 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
   ResponsiveContainer,
+  Tooltip,
 } from 'recharts';
+import { Tabs, TabItem } from '../../components/common/Tabs';
+import { Card } from '../../components/common/Card';
 import { ResultsAPI } from '../../api/results';
 import {
   AssessmentResult,
@@ -142,19 +144,26 @@ export const AdminAssessmentResultsPage: React.FC = () => {
     }
   };
 
+  const resultTabs: TabItem<'roster' | 'analytics' | 'questions' | 'reports'>[] = [
+    { id: 'roster', label: 'Candidate Roster', icon: Users },
+    { id: 'analytics', label: 'Cohort Analytics', icon: BarChart3 },
+    { id: 'questions', label: 'Question Item Analysis', icon: HelpCircle },
+    { id: 'reports', label: 'Reports & Export', icon: FileSpreadsheet },
+  ];
+
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
       {/* Top Breadcrumb & Actions */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-200">
         <div>
           <button
             onClick={() => navigate('/admin/assessments')}
-            className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200 mb-2 transition"
+            className="flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-slate-800 mb-2 transition"
           >
             <ArrowLeft className="w-4 h-4" /> Back to Assessments
           </button>
-          <h1 className="text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
-            <Award className="w-8 h-8 text-brand-400" /> Assessment Results & Analytics
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+            <Award className="w-8 h-8 text-emerald-600" /> Assessment Results & Analytics
           </h1>
         </div>
 
@@ -162,7 +171,7 @@ export const AdminAssessmentResultsPage: React.FC = () => {
           <button
             onClick={handleReleaseResults}
             disabled={releasing}
-            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 text-white font-semibold text-sm rounded-xl shadow-lg transition"
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-xs sm:text-sm rounded-lg shadow-sm transition"
           >
             {releasing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             Release Results
@@ -171,90 +180,73 @@ export const AdminAssessmentResultsPage: React.FC = () => {
       </div>
 
       {error && (
-        <div className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center gap-3 text-sm">
-          <AlertCircle className="w-5 h-5 shrink-0" />
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 flex items-center gap-3 text-sm">
+          <AlertCircle className="w-5 h-5 shrink-0 text-rose-600" />
           <span>{error}</span>
         </div>
       )}
 
       {/* Tab Navigation */}
-      <div className="flex items-center gap-2 border-b border-slate-800 mb-8 pb-px">
-        {[
-          { id: 'roster', label: 'Candidate Roster', icon: Users },
-          { id: 'analytics', label: 'Cohort Analytics', icon: BarChart3 },
-          { id: 'questions', label: 'Question Item Analysis', icon: HelpCircle },
-          { id: 'reports', label: 'Reports & Export', icon: FileSpreadsheet },
-        ].map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => {
-                setActiveTab(tab.id as any);
-                setPage(1);
-              }}
-              className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition ${
-                isActive
-                  ? 'border-brand-500 text-brand-400 bg-brand-500/5'
-                  : 'border-transparent text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Icon className="w-4 h-4" /> {tab.label}
-            </button>
-          );
-        })}
-      </div>
+      <Tabs
+        tabs={resultTabs}
+        activeTab={activeTab}
+        onChange={(t) => {
+          setActiveTab(t as any);
+          setPage(1);
+        }}
+      />
 
       {/* Tab 1: Candidate Roster */}
       {activeTab === 'roster' && (
         <div className="space-y-6">
           {/* Filter Bar */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
-            <form onSubmit={handleSearchSubmit} className="flex items-center gap-2 w-full sm:w-80">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Search EUID, roll #, email..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-700 text-sm text-slate-200 rounded-xl outline-none focus:border-brand-500"
-                />
-              </div>
-              <button type="submit" className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm rounded-xl">
-                Search
-              </button>
-            </form>
+          <Card className="p-4">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+              <form onSubmit={handleSearchSubmit} className="flex items-center gap-2 w-full sm:w-80">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search EUID, roll #, email..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 text-xs text-slate-900 placeholder:text-slate-400 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <button type="submit" className="px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 text-xs font-semibold rounded-lg">
+                  Search
+                </button>
+              </form>
 
-            <div className="flex items-center gap-3 w-full sm:w-auto">
-              <span className="text-xs text-slate-400 font-medium">Verdict:</span>
-              <select
-                value={passFilter}
-                onChange={(e) => setPassFilter(e.target.value)}
-                className="bg-slate-950 border border-slate-700 text-slate-200 text-sm rounded-xl px-3 py-2 outline-none focus:border-brand-500"
-              >
-                <option value="all">All Verdicts</option>
-                <option value="pass">Passed Only</option>
-                <option value="fail">Failed Only</option>
-              </select>
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                <span className="text-xs text-slate-600 font-semibold">Verdict:</span>
+                <select
+                  value={passFilter}
+                  onChange={(e) => setPassFilter(e.target.value)}
+                  className="bg-white border border-slate-300 text-slate-800 text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+                >
+                  <option value="all">All Verdicts</option>
+                  <option value="pass">Passed Only</option>
+                  <option value="fail">Failed Only</option>
+                </select>
+              </div>
             </div>
-          </div>
+          </Card>
 
           {/* Table */}
           {loading ? (
             <div className="flex justify-center p-12">
-              <Loader2 className="w-8 h-8 animate-spin text-brand-400" />
+              <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
             </div>
           ) : results.length === 0 ? (
-            <div className="text-center p-12 bg-slate-900/40 rounded-2xl border border-slate-800 text-slate-400">
+            <div className="text-center p-12 bg-white rounded-xl border border-slate-200 text-slate-500">
               No student results found matching criteria.
             </div>
           ) : (
-            <div className="bg-slate-900/40 rounded-2xl border border-slate-800 overflow-hidden">
+            <div className="bg-white rounded-xl border border-slate-200/90 overflow-hidden shadow-sm">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-800 bg-slate-950/60 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     <th className="py-3.5 px-4">Candidate</th>
                     <th className="py-3.5 px-4">EUID / Roll</th>
                     <th className="py-3.5 px-4">Score</th>
@@ -264,35 +256,35 @@ export const AdminAssessmentResultsPage: React.FC = () => {
                     <th className="py-3.5 px-4">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/60 text-sm">
+                <tbody className="divide-y divide-slate-100 text-sm">
                   {results.map((r) => {
                     const isPass = r.is_passed;
                     const proct = r.proctoring_summary;
 
                     return (
-                      <tr key={r.id} className="hover:bg-slate-800/30 transition">
-                        <td className="py-3.5 px-4 font-medium text-slate-200">
+                      <tr key={r.id} className="hover:bg-slate-50/80 transition">
+                        <td className="py-3.5 px-4 font-medium text-slate-900">
                           {r.student?.email || 'N/A'}
                         </td>
-                        <td className="py-3.5 px-4 text-slate-400 font-mono text-xs">
-                          {r.student?.euid || 'N/A'} • {r.student?.roll_number || 'N/A'}
+                        <td className="py-3.5 px-4 text-slate-500 font-mono text-xs">
+                          {r.student?.euid || 'N/A'} &bull; {r.student?.roll_number || 'N/A'}
                         </td>
-                        <td className="py-3.5 px-4 font-bold text-white">
+                        <td className="py-3.5 px-4 font-bold text-slate-900">
                           {r.total_score_earned} <span className="text-xs text-slate-400 font-normal">/ {r.total_possible_score}</span>
                         </td>
-                        <td className="py-3.5 px-4 font-semibold text-brand-400">
+                        <td className="py-3.5 px-4 font-semibold text-emerald-700">
                           {r.percentage}%
                         </td>
                         <td className="py-3.5 px-4">
                           {isPass !== null && (
                             <span
-                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold ${
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold ${
                                 isPass
-                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                  : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-rose-50 text-rose-700 border border-rose-200'
                               }`}
                             >
-                              {isPass ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                              {isPass ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
                               {isPass ? 'PASS' : 'FAIL'}
                             </span>
                           )}
@@ -302,10 +294,10 @@ export const AdminAssessmentResultsPage: React.FC = () => {
                             <span
                               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold ${
                                 proct.risk_band === 'CRITICAL' || proct.risk_band === 'HIGH'
-                                  ? 'bg-rose-500/15 text-rose-400'
+                                  ? 'bg-rose-50 text-rose-700 border border-rose-200'
                                   : proct.risk_band === 'MEDIUM'
-                                  ? 'bg-amber-500/15 text-amber-400'
-                                  : 'bg-slate-800 text-slate-300'
+                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                  : 'bg-slate-100 text-slate-700 border border-slate-200'
                               }`}
                             >
                               <ShieldAlert className="w-3 h-3" /> {proct.risk_band} ({proct.risk_score})
@@ -316,9 +308,9 @@ export const AdminAssessmentResultsPage: React.FC = () => {
                         </td>
                         <td className="py-3.5 px-4">
                           {r.is_released ? (
-                            <span className="text-xs font-medium text-emerald-400">Released</span>
+                            <span className="text-xs font-semibold text-emerald-700">Released</span>
                           ) : (
-                            <span className="text-xs font-medium text-amber-400">Unreleased</span>
+                            <span className="text-xs font-semibold text-amber-700">Unreleased</span>
                           )}
                         </td>
                       </tr>
@@ -328,21 +320,21 @@ export const AdminAssessmentResultsPage: React.FC = () => {
               </table>
 
               {/* Pagination */}
-              <div className="flex items-center justify-between p-4 border-t border-slate-800 bg-slate-950/40 text-xs text-slate-400">
+              <div className="flex items-center justify-between p-4 border-t border-slate-200 bg-white text-xs text-slate-600">
                 <div>Total Candidates: {totalCount}</div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={page === 1}
-                    className="px-3 py-1.5 bg-slate-800 disabled:opacity-50 text-slate-200 rounded-lg"
+                    className="px-3 py-1.5 bg-slate-100 border border-slate-200 hover:bg-slate-200 disabled:opacity-50 text-slate-700 font-medium rounded-lg"
                   >
                     Previous
                   </button>
-                  <span>Page {page}</span>
+                  <span className="font-semibold text-slate-800">Page {page}</span>
                   <button
                     onClick={() => setPage((p) => p + 1)}
                     disabled={results.length < 20}
-                    className="px-3 py-1.5 bg-slate-800 disabled:opacity-50 text-slate-200 rounded-lg"
+                    className="px-3 py-1.5 bg-slate-100 border border-slate-200 hover:bg-slate-200 disabled:opacity-50 text-slate-700 font-medium rounded-lg"
                   >
                     Next
                   </button>
@@ -358,101 +350,101 @@ export const AdminAssessmentResultsPage: React.FC = () => {
         <div className="space-y-8">
           {/* KPI Grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-slate-900/60 p-5 rounded-2xl border border-slate-800">
-              <div className="text-xs text-slate-400 font-medium">Completion Rate</div>
-              <div className="text-2xl font-black text-white mt-1">
+            <Card className="p-5">
+              <div className="text-xs text-slate-600 font-semibold">Completion Rate</div>
+              <div className="text-2xl font-black text-slate-900 mt-1">
                 {analytics.cohort_metrics.completion_rate_percentage}%
               </div>
-              <div className="text-xs text-slate-400 mt-0.5">
+              <div className="text-xs text-slate-500 mt-0.5">
                 {analytics.cohort_metrics.total_completed} / {analytics.cohort_metrics.total_assigned} Students
               </div>
-            </div>
+            </Card>
 
-            <div className="bg-slate-900/60 p-5 rounded-2xl border border-slate-800">
-              <div className="text-xs text-slate-400 font-medium">Pass Rate</div>
-              <div className="text-2xl font-black text-emerald-400 mt-1">
+            <Card className="p-5">
+              <div className="text-xs text-slate-600 font-semibold">Pass Rate</div>
+              <div className="text-2xl font-black text-emerald-700 mt-1">
                 {analytics.cohort_metrics.pass_rate_percentage}%
               </div>
-              <div className="text-xs text-slate-400 mt-0.5">Threshold met</div>
-            </div>
+              <div className="text-xs text-slate-500 mt-0.5">Threshold met</div>
+            </Card>
 
-            <div className="bg-slate-900/60 p-5 rounded-2xl border border-slate-800">
-              <div className="text-xs text-slate-400 font-medium">Cohort Mean Score</div>
-              <div className="text-2xl font-black text-brand-400 mt-1">
+            <Card className="p-5">
+              <div className="text-xs text-slate-600 font-semibold">Cohort Mean Score</div>
+              <div className="text-2xl font-black text-emerald-700 mt-1">
                 {analytics.score_statistics.mean_score}
               </div>
-              <div className="text-xs text-slate-400 mt-0.5">Median: {analytics.score_statistics.median_score}</div>
-            </div>
+              <div className="text-xs text-slate-500 mt-0.5">Median: {analytics.score_statistics.median_score}</div>
+            </Card>
 
-            <div className="bg-slate-900/60 p-5 rounded-2xl border border-slate-800">
-              <div className="text-xs text-slate-400 font-medium">Standard Deviation</div>
-              <div className="text-2xl font-black text-slate-200 mt-1">
+            <Card className="p-5">
+              <div className="text-xs text-slate-600 font-semibold">Standard Deviation</div>
+              <div className="text-2xl font-black text-slate-900 mt-1">
                 {analytics.score_statistics.standard_deviation}
               </div>
-              <div className="text-xs text-slate-400 mt-0.5">
+              <div className="text-xs text-slate-500 mt-0.5">
                 Range: {analytics.score_statistics.lowest_score} – {analytics.score_statistics.highest_score}
               </div>
-            </div>
+            </Card>
           </div>
 
           {/* Score Distribution Histogram */}
-          <div className="bg-slate-900/60 p-6 rounded-2xl border border-slate-800">
-            <h2 className="text-lg font-bold text-white mb-6">Score Distribution Histogram</h2>
+          <Card className="p-6">
+            <h2 className="text-lg font-bold text-slate-900 mb-6">Score Distribution Histogram</h2>
             <div className="h-72 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={analytics.score_distribution}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
-                  <XAxis dataKey="bucket" stroke="#94a3b8" fontSize={12} />
-                  <YAxis stroke="#94a3b8" fontSize={12} allowDecimals={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.8} />
+                  <XAxis dataKey="bucket" stroke="#64748b" fontSize={12} />
+                  <YAxis stroke="#64748b" fontSize={12} allowDecimals={false} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '0.75rem' }}
-                    labelStyle={{ color: '#f8fafc', fontWeight: 'bold' }}
+                    contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '0.75rem', color: '#0f172a' }}
+                    labelStyle={{ color: '#0f172a', fontWeight: 'bold' }}
                   />
-                  <Bar dataKey="count" fill="#6366f1" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="count" fill="#059669" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </div>
+          </Card>
 
           {/* Proctoring Risk Correlation Safeguard */}
-          <div className="bg-slate-900/60 p-6 rounded-2xl border border-slate-800">
-            <h2 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
-              <ShieldAlert className="w-5 h-5 text-brand-400" /> Informational Proctoring Risk Correlation
+          <Card className="p-6">
+            <h2 className="text-lg font-bold text-slate-900 mb-2 flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-emerald-600" /> Informational Proctoring Risk Correlation
             </h2>
-            <p className="text-xs text-slate-400 mb-4">
+            <p className="text-xs text-slate-500 mb-4">
               Informational context only. Risk scores represent statistical anomalies, never disciplinary proof.
             </p>
 
             {analytics.proctoring_risk_correlation.is_available && analytics.proctoring_risk_correlation.distribution ? (
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 {Object.entries(analytics.proctoring_risk_correlation.distribution).map(([band, val]) => (
-                  <div key={band} className="bg-slate-950/50 p-4 rounded-xl border border-slate-800">
-                    <div className="text-xs font-bold text-slate-400">{band}</div>
-                    <div className="text-lg font-black text-white mt-1">{val.count} students</div>
-                    <div className="text-xs text-brand-400 mt-0.5">Avg Score: {val.average_score}</div>
+                  <div key={band} className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <div className="text-xs font-bold text-slate-700">{band}</div>
+                    <div className="text-lg font-black text-slate-900 mt-1">{val.count} students</div>
+                    <div className="text-xs text-emerald-700 font-semibold mt-0.5">Avg Score: {val.average_score}</div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="bg-slate-950/40 p-4 rounded-xl border border-slate-800/80 text-xs text-amber-400/90 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
+              <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-xs text-amber-800 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
                 <span>
                   {analytics.proctoring_risk_correlation.reason ||
                     'Proctoring aggregate distribution withheld to safeguard privacy (requires cohort N ≥ 10).'}
                 </span>
               </div>
             )}
-          </div>
+          </Card>
         </div>
       )}
 
       {/* Tab 3: Question Item Analysis */}
       {activeTab === 'questions' && (
         <div className="space-y-6">
-          <div className="bg-slate-900/40 rounded-2xl border border-slate-800 overflow-hidden">
-            <table className="w-full text-left border-collapse">
+          <div className="bg-white rounded-xl border border-slate-200/90 overflow-hidden shadow-sm">
+            <table className="w-full text-left border-collapse font-mono">
               <thead>
-                <tr className="border-b border-slate-800 bg-slate-950/60 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   <th className="py-3.5 px-4">#</th>
                   <th className="py-3.5 px-4">Title</th>
                   <th className="py-3.5 px-4">Type</th>
@@ -463,29 +455,29 @@ export const AdminAssessmentResultsPage: React.FC = () => {
                   <th className="py-3.5 px-4">Correct / Total</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 text-sm">
+              <tbody className="divide-y divide-slate-100 text-sm">
                 {questions.map((q) => (
-                  <tr key={q.snapshot_question_id} className="hover:bg-slate-800/30 transition">
-                    <td className="py-3.5 px-4 font-bold text-slate-400">{q.order}</td>
-                    <td className="py-3.5 px-4 font-semibold text-slate-200">{q.title}</td>
-                    <td className="py-3.5 px-4 text-xs font-mono text-slate-400">{q.question_type}</td>
-                    <td className="py-3.5 px-4 text-slate-300 font-semibold">{q.max_points}</td>
+                  <tr key={q.snapshot_question_id} className="hover:bg-slate-50/80 transition">
+                    <td className="py-3.5 px-4 font-bold text-slate-500">{q.order}</td>
+                    <td className="py-3.5 px-4 font-semibold text-slate-900 font-sans">{q.title}</td>
+                    <td className="py-3.5 px-4 text-xs font-mono text-slate-600">{q.question_type}</td>
+                    <td className="py-3.5 px-4 text-slate-800 font-semibold">{q.max_points}</td>
                     <td className="py-3.5 px-4">
-                      <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-brand-500/10 text-brand-400">
+                      <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                         {q.difficulty_index_p}
                       </span>
                     </td>
                     <td className="py-3.5 px-4">
                       {q.discrimination_index_d !== null ? (
-                        <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-slate-800 text-slate-200">
+                        <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
                           {q.discrimination_index_d}
                         </span>
                       ) : (
                         <span className="text-xs text-slate-400">N/A (N&lt;10)</span>
                       )}
                     </td>
-                    <td className="py-3.5 px-4 font-semibold text-slate-200">{q.average_score}</td>
-                    <td className="py-3.5 px-4 text-xs text-slate-400">
+                    <td className="py-3.5 px-4 font-semibold text-slate-900">{q.average_score}</td>
+                    <td className="py-3.5 px-4 text-xs text-slate-600">
                       {q.breakdown.correct} / {q.breakdown.total_responses}
                     </td>
                   </tr>
@@ -498,21 +490,21 @@ export const AdminAssessmentResultsPage: React.FC = () => {
 
       {/* Tab 4: Reports & Export */}
       {activeTab === 'reports' && (
-        <div className="max-w-2xl bg-slate-900/60 p-8 rounded-3xl border border-slate-800 space-y-6">
+        <Card className="max-w-2xl p-8 space-y-6">
           <div>
-            <h2 className="text-xl font-bold text-white">Generate Official Assessment Reports</h2>
-            <p className="text-sm text-slate-400 mt-1">
+            <h2 className="text-xl font-bold text-slate-900">Generate Official Assessment Reports</h2>
+            <p className="text-sm text-slate-500 mt-1">
               Asynchronously export candidate rosters, statistical summaries, or item analyses.
             </p>
           </div>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase mb-2">Report Scope</label>
+              <label className="block text-xs font-semibold text-slate-700 uppercase mb-2">Report Scope</label>
               <select
                 value={reportType}
                 onChange={(e) => setReportType(e.target.value as any)}
-                className="w-full bg-slate-950 border border-slate-700 text-slate-200 text-sm rounded-xl p-3 outline-none focus:border-brand-500"
+                className="w-full bg-white border border-slate-300 text-slate-900 text-sm rounded-lg p-3 outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
               >
                 <option value="ASSESSMENT_SUMMARY">Assessment Executive Summary</option>
                 <option value="ASSESSMENT_ROSTER">Full Candidate Gradebook Roster</option>
@@ -520,11 +512,11 @@ export const AdminAssessmentResultsPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase mb-2">Export Format</label>
+              <label className="block text-xs font-semibold text-slate-700 uppercase mb-2">Export Format</label>
               <select
                 value={reportFormat}
                 onChange={(e) => setReportFormat(e.target.value as any)}
-                className="w-full bg-slate-950 border border-slate-700 text-slate-200 text-sm rounded-xl p-3 outline-none focus:border-brand-500"
+                className="w-full bg-white border border-slate-300 text-slate-900 text-sm rounded-lg p-3 outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
               >
                 <option value="PDF">PDF Vector Document</option>
                 <option value="XLSX">Excel Spreadsheet (.xlsx)</option>
@@ -535,7 +527,7 @@ export const AdminAssessmentResultsPage: React.FC = () => {
             <button
               onClick={handleGenerateReport}
               disabled={generatingReport}
-              className="w-full flex items-center justify-center gap-2 py-3 bg-brand-600 hover:bg-brand-500 disabled:bg-slate-800 text-white font-bold text-sm rounded-xl shadow-lg transition"
+              className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-sm rounded-lg shadow-sm transition"
             >
               {generatingReport ? (
                 <>
@@ -550,20 +542,20 @@ export const AdminAssessmentResultsPage: React.FC = () => {
           </div>
 
           {reportJob && (
-            <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-1">
-              <div className="text-slate-400">Job ID: {reportJob.id}</div>
-              <div className="text-slate-400">
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
+              <div className="text-slate-600">Job ID: <span className="font-mono text-slate-900">{reportJob.id}</span></div>
+              <div className="text-slate-600">
                 Status:{' '}
-                <span className={`font-semibold ${reportJob.status === 'COMPLETED' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                <span className={`font-semibold ${reportJob.status === 'COMPLETED' ? 'text-emerald-700' : 'text-amber-700'}`}>
                   {reportJob.status}
                 </span>
               </div>
               {reportJob.sha256_hash && (
-                <div className="text-slate-400 font-mono truncate">SHA-256: {reportJob.sha256_hash}</div>
+                <div className="text-slate-600 font-mono truncate">SHA-256: {reportJob.sha256_hash}</div>
               )}
             </div>
           )}
-        </div>
+        </Card>
       )}
     </div>
   );

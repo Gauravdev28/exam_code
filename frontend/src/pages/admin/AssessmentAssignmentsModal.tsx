@@ -112,47 +112,47 @@ export const AssessmentAssignmentsModal: React.FC<AssessmentAssignmentsModalProp
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
-      <Card className="max-w-3xl w-full p-6 space-y-6 border-slate-800 shadow-2xl relative my-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
+      <Card className="max-w-3xl w-full p-6 space-y-6 bg-white border border-slate-200 shadow-2xl relative my-8">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-slate-200"
+          className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Modal Header */}
-        <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
-          <div className="p-2.5 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
+        <div className="flex items-center gap-3 border-b border-slate-200 pb-4">
+          <div className="p-2.5 rounded-xl bg-purple-50 text-purple-700 border border-purple-200">
             <Users className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-white">Student Assignments</h3>
-            <p className="text-xs text-slate-400">
-              Manage student authorizations for: <strong className="text-slate-200">{assessmentTitle}</strong>
+            <h3 className="text-base font-bold text-slate-900">Student Assignments</h3>
+            <p className="text-xs text-slate-500">
+              Manage student authorizations for: <strong className="text-slate-900">{assessmentTitle}</strong>
             </p>
           </div>
         </div>
 
         {errorMessage && (
-          <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 flex items-start gap-2.5 text-red-300 text-xs">
-            <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+          <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 flex items-start gap-2.5 text-rose-800 text-xs">
+            <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
             <span>{errorMessage}</span>
           </div>
         )}
 
         {isLoading ? (
           <div className="py-12 flex flex-col items-center justify-center space-y-3">
-            <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs text-slate-400 font-mono">Loading students & assignments...</p>
+            <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs text-slate-500">Loading students & assignments...</p>
           </div>
         ) : (
           <div className="space-y-6">
             {/* Section 1: Assign New Students */}
-            <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-slate-300 flex items-center gap-1.5">
-                  <UserPlus className="w-4 h-4 text-brand-400" />
+                <span className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
+                  <UserPlus className="w-4 h-4 text-emerald-600" />
                   Assign Active Students
                 </span>
                 {selectedStudentIds.length > 0 && (
@@ -169,18 +169,18 @@ export const AssessmentAssignmentsModal: React.FC<AssessmentAssignmentsModalProp
 
               {/* Search Bar */}
               <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   placeholder="Filter available students by email or roll number..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-200 focus:ring-1 focus:ring-brand-500"
+                  className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-white border border-slate-300 text-xs text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
 
               {/* Student Pick List */}
-              <div className="max-h-40 overflow-y-auto border border-slate-800/80 rounded-lg divide-y divide-slate-800/40 text-xs font-mono">
+              <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-white text-xs">
                 {filteredUnassignedStudents.length === 0 ? (
                   <div className="p-3 text-center text-slate-500 text-xs">
                     No matching unassigned students found.
@@ -200,7 +200,7 @@ export const AssessmentAssignmentsModal: React.FC<AssessmentAssignmentsModalProp
                           }
                         }}
                         className={`flex items-center justify-between p-2.5 cursor-pointer transition-colors ${
-                          isSelected ? 'bg-brand-500/10' : 'hover:bg-slate-800/40'
+                          isSelected ? 'bg-emerald-50 text-emerald-900' : 'hover:bg-slate-50 text-slate-800'
                         }`}
                       >
                         <div className="flex items-center gap-2">
@@ -208,11 +208,11 @@ export const AssessmentAssignmentsModal: React.FC<AssessmentAssignmentsModalProp
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => {}}
-                            className="rounded text-brand-500 focus:ring-brand-500 h-3.5 w-3.5 bg-slate-900 border-slate-700"
+                            className="rounded text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5 bg-white border-slate-300"
                           />
-                          <span className="text-slate-200 font-sans">{st.email}</span>
+                          <span className="font-medium text-slate-900">{st.email}</span>
                           {st.roll_number && (
-                            <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
+                            <span className="text-[10px] text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded font-mono">
                               {st.roll_number}
                             </span>
                           )}
@@ -226,10 +226,10 @@ export const AssessmentAssignmentsModal: React.FC<AssessmentAssignmentsModalProp
 
             {/* Section 2: Currently Assigned Roster */}
             <div className="space-y-3">
-              <h4 className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider">
+              <h4 className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
                 Currently Assigned Students ({assignments.filter((a) => a.status === 'ASSIGNED').length})
               </h4>
-              <div className="max-h-60 overflow-y-auto border border-slate-800 rounded-xl divide-y divide-slate-800/60 text-xs font-mono">
+              <div className="max-h-60 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white text-xs">
                 {assignments.length === 0 ? (
                   <div className="p-6 text-center text-slate-500 text-xs">
                     No students currently assigned to this assessment.
@@ -238,14 +238,14 @@ export const AssessmentAssignmentsModal: React.FC<AssessmentAssignmentsModalProp
                   assignments.map((a) => {
                     const isRevoked = a.status === 'REVOKED';
                     return (
-                      <div key={a.id} className="flex items-center justify-between p-3 hover:bg-slate-900/40">
+                      <div key={a.id} className="flex items-center justify-between p-3 hover:bg-slate-50 transition-colors">
                         <div className="space-y-0.5">
                           <div className="flex items-center gap-2">
-                            <span className={`font-sans font-medium ${isRevoked ? 'line-through text-slate-500' : 'text-slate-200'}`}>
+                            <span className={`font-medium ${isRevoked ? 'line-through text-slate-400' : 'text-slate-900'}`}>
                               {a.student_email}
                             </span>
                             {a.student_roll_number && (
-                              <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
+                              <span className="text-[10px] text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded font-mono">
                                 {a.student_roll_number}
                               </span>
                             )}
@@ -264,7 +264,7 @@ export const AssessmentAssignmentsModal: React.FC<AssessmentAssignmentsModalProp
                             size="sm"
                             onClick={() => handleRevoke(a.student_id)}
                             title="Revoke Assignment"
-                            className="text-slate-500 hover:text-red-400"
+                            className="text-slate-400 hover:text-rose-600"
                           >
                             <Trash2 className="w-3.5 h-3.5 mr-1" />
                             Revoke
@@ -279,7 +279,7 @@ export const AssessmentAssignmentsModal: React.FC<AssessmentAssignmentsModalProp
           </div>
         )}
 
-        <div className="pt-3 flex justify-end border-t border-slate-800">
+        <div className="pt-3 flex justify-end border-t border-slate-200">
           <Button variant="secondary" size="sm" onClick={onClose}>
             Done
           </Button>
