@@ -1,4 +1,4 @@
-export type UserRole = 'ADMIN' | 'STUDENT';
+export type UserRole = 'ADMIN' | 'PROCTOR' | 'STUDENT';
 
 export interface User {
   id: string;
@@ -6,7 +6,11 @@ export interface User {
   role: UserRole;
   is_active: boolean;
   is_staff: boolean;
+  is_superuser?: boolean;
   first_login_required?: boolean;
+  admin_id?: string;
+  display_name?: string;
+  first_name?: string;
   student_profile?: {
     id: string;
     roll_number: string;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import {
   createQuestion,
   getQuestionVersionDetail,
@@ -10,6 +10,7 @@ import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { QuestionPreviewModal } from '../../components/admin/QuestionPreviewModal';
+import { CodingQuestionEditor } from '../../components/admin/CodingQuestionEditor';
 import {
   ArrowLeft,
   Save,
@@ -19,7 +20,6 @@ import {
   Plus,
   Trash2,
   Lock,
-  Code2,
   Database,
   ListFilter,
   CheckSquare,
@@ -36,6 +36,9 @@ import {
 export const QuestionEditorPage: React.FC = () => {
   const { id: routeQuestionId, version: routeVersionStr } = useParams<{ id?: string; version?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const typeParam = searchParams.get('type') as QuestionType | null;
 
   const isEditing = Boolean(routeQuestionId && routeVersionStr);
   const routeVersionNum = routeVersionStr ? parseInt(routeVersionStr, 10) : 1;
@@ -96,6 +99,12 @@ export const QuestionEditorPage: React.FC = () => {
 
   // Preview Modal
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isEditing && typeParam) {
+      setQuestionType(typeParam);
+    }
+  }, [isEditing, typeParam]);
 
   useEffect(() => {
     if (isEditing && routeQuestionId && routeVersionNum) {
@@ -317,6 +326,69 @@ export const QuestionEditorPage: React.FC = () => {
     }
   };
 
+  const handleCodingSaveDraft = async (payload: any) => {
+    setIsSaving(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      if (!isEditing) {
+        const res = await createQuestion(payload);
+        if (res.data) {
+          navigate(`/admin/questions/${res.data.question_id}/versions/${res.data.version_number}`);
+        }
+      } else {
+        await updateDraftVersion(routeQuestionId!, routeVersionNum, payload);
+        await loadVersionData(routeQuestionId!, routeVersionNum);
+        setSuccessMessage('Coding question draft saved successfully.');
+      }
+    } catch (err: any) {
+      setErrorMessage(
+        err.error?.message ||
+          (err.error?.details ? JSON.stringify(err.error.details) : null) ||
+          err.message ||
+          'Failed to save coding question draft.'
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCodingPublish = async (payload: any) => {
+    setIsPublishing(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      let qId = routeQuestionId;
+      let vNum = routeVersionNum;
+      if (!isEditing) {
+        const res = await createQuestion(payload);
+        if (res.data) {
+          qId = res.data.question_id;
+          vNum = res.data.version_number;
+        }
+      } else {
+        await updateDraftVersion(qId!, vNum, payload);
+      }
+      if (qId && vNum) {
+        const pubRes = await publishVersion(qId, vNum);
+        if (pubRes.data) {
+          setVersionStatus('PUBLISHED');
+          setSuccessMessage('Coding question published successfully! Immutability locked.');
+          await loadVersionData(qId, vNum);
+        }
+      }
+    } catch (err: any) {
+      setErrorMessage(
+        err.error?.message ||
+          (err.error?.details ? JSON.stringify(err.error.details) : null) ||
+          err.message ||
+          'Failed to publish coding question.'
+      );
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
   // Option handlers for MCQ/Multi
   const handleAddOption = () => {
     const nextId = String.fromCharCode(65 + options.length);
@@ -334,26 +406,6 @@ export const QuestionEditorPage: React.FC = () => {
     setCorrectOptions(correctOptions.filter((id) => id !== removedId));
   };
 
-  // Test Case handlers
-  const handleAddTestCase = () => {
-    setTestCases([
-      ...testCases,
-      {
-        input_data: '',
-        expected_output: '',
-        points: 5,
-        is_hidden: true,
-        execution_order: testCases.length + 1,
-      },
-    ]);
-  };
-
-  const handleRemoveTestCase = (idx: number) => {
-    setTestCases(testCases.filter((_, i) => i !== idx));
-  };
-
-  const assignedTestPoints = testCases.reduce((sum, tc) => sum + (Number(tc.points) || 0), 0);
-  const remainingTestPoints = points - assignedTestPoints;
   const isLocked = versionStatus === 'PUBLISHED' || versionStatus === 'ARCHIVED';
 
   if (isLoading) {
@@ -368,10 +420,10 @@ export const QuestionEditorPage: React.FC = () => {
   return (
     <div className="container mx-auto px-4 py-8 space-y-6 max-w-5xl">
       {/* Top Navigation */}
-      <div className="flex items-center justify-between border-b border-slate-900 pb-4">
+      <div className="flex items-center justify-between border-b border-slate-200 pb-4">
         <Link
           to="/admin/questions"
-          className="inline-flex items-center text-xs font-mono text-slate-400 hover:text-slate-200 transition-colors"
+          className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors"
         >
           <ArrowLeft className="w-4 h-4 mr-1.5" />
           Back to Question Bank
@@ -392,7 +444,7 @@ export const QuestionEditorPage: React.FC = () => {
             </Badge>
           )}
           {isLocked && (
-            <span className="flex items-center gap-1 text-xs text-amber-400 font-mono">
+            <span className="flex items-center gap-1 text-xs text-amber-700 font-medium">
               <Lock className="w-3.5 h-3.5" /> Locked (Immutable)
             </span>
           )}
@@ -401,30 +453,61 @@ export const QuestionEditorPage: React.FC = () => {
 
       {/* Notifications */}
       {errorMessage && (
-        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-3 text-red-300 text-sm font-mono">
-          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-3 text-rose-800 text-sm">
+          <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
           <span>{errorMessage}</span>
         </div>
       )}
 
       {successMessage && (
-        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-start gap-3 text-emerald-300 text-sm font-mono">
-          <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 flex items-start gap-3 text-emerald-800 text-sm">
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
           <span>{successMessage}</span>
         </div>
       )}
 
-      {/* Main Form */}
-      <div className="space-y-6">
+      {/* When Question Type is CODING, render the 6-step professional CodingQuestionEditor */}
+      {questionType === 'CODING' ? (
+        <CodingQuestionEditor
+          initialData={{
+            question: routeQuestionId,
+            title,
+            difficulty,
+            points,
+            negative_marking_enabled: negativeMarkingEnabled,
+            negative_points: negativePoints,
+            tags: tagsInput ? tagsInput.split(',').map((s) => s.trim()).filter(Boolean) : [],
+            description,
+            instructions,
+            coding_config: {
+              problem_statement: codingProblemStatement || description,
+              constraints: codingConstraints,
+              allowed_languages: allowedLanguages,
+              starter_code: '',
+              time_limit_ms: timeLimitMs,
+              memory_limit_mb: memoryLimitMb,
+              test_cases: testCases,
+            },
+          }}
+          isLocked={isLocked}
+          versionNumber={routeVersionNum}
+          onSaveDraft={handleCodingSaveDraft}
+          onPublish={handleCodingPublish}
+          isSaving={isSaving}
+          isPublishing={isPublishing}
+        />
+      ) : (
+        /* Main Form for other Question Types (MCQ, MULTI_SELECT, TRUE_FALSE, SHORT_ANSWER, SQL) */
+        <div className="space-y-6">
         {/* Section 1: Question Type & Core Metadata */}
-        <Card className="p-6 space-y-6 border-slate-800/80">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-            <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <ListFilter className="w-5 h-5 text-brand-400" />
+        <Card className="p-6 space-y-6">
+          <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <ListFilter className="w-5 h-5 text-emerald-600" />
               Question Architecture & Type Anchor
             </h2>
             {isEditing && (
-              <span className="text-xs text-slate-500 font-mono">
+              <span className="text-xs text-slate-500 font-medium">
                 Question Type is permanent for this logical question.
               </span>
             )}
@@ -433,12 +516,12 @@ export const QuestionEditorPage: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {/* Question Type */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-mono text-slate-400">Question Type</label>
+              <label className="block text-xs font-semibold text-slate-700">Question Type</label>
               <select
                 disabled={isEditing || isLocked}
                 value={questionType}
                 onChange={(e) => setQuestionType(e.target.value as QuestionType)}
-                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 text-xs font-mono disabled:opacity-60 focus:ring-1 focus:ring-brand-500"
+                className="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-900 text-xs font-medium disabled:opacity-60 focus:ring-2 focus:ring-emerald-500"
               >
                 <option value="MCQ">MCQ (Single Select)</option>
                 <option value="MULTI_SELECT">Multi-Select</option>
@@ -451,12 +534,12 @@ export const QuestionEditorPage: React.FC = () => {
 
             {/* Difficulty */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-mono text-slate-400">Difficulty</label>
+              <label className="block text-xs font-semibold text-slate-700">Difficulty</label>
               <select
                 disabled={isLocked}
                 value={difficulty}
                 onChange={(e) => setDifficulty(e.target.value as Difficulty)}
-                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 text-xs font-mono disabled:opacity-60 focus:ring-1 focus:ring-brand-500"
+                className="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-900 text-xs font-medium disabled:opacity-60 focus:ring-2 focus:ring-emerald-500"
               >
                 <option value="EASY">Easy</option>
                 <option value="MEDIUM">Medium</option>
@@ -466,34 +549,34 @@ export const QuestionEditorPage: React.FC = () => {
 
             {/* Total Points */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-mono text-slate-400">Total Points</label>
+              <label className="block text-xs font-semibold text-slate-700">Total Points</label>
               <input
                 type="number"
                 min={1}
                 disabled={isLocked}
                 value={points}
                 onChange={(e) => setPoints(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 text-xs font-mono disabled:opacity-60 focus:ring-1 focus:ring-brand-500"
+                className="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-emerald-700 font-bold text-xs disabled:opacity-60 focus:ring-2 focus:ring-emerald-500"
               />
             </div>
           </div>
 
           {/* Negative Marking */}
-          <div className="flex flex-wrap items-center gap-6 p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-xs font-mono">
-            <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+          <div className="flex flex-wrap items-center gap-6 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+            <label className="flex items-center gap-2 cursor-pointer text-slate-700 font-medium">
               <input
                 type="checkbox"
                 disabled={isLocked}
                 checked={negativeMarkingEnabled}
                 onChange={(e) => setNegativeMarkingEnabled(e.target.checked)}
-                className="rounded text-brand-500 focus:ring-brand-500 h-4 w-4 bg-slate-900 border-slate-700"
+                className="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 bg-white border-slate-300"
               />
               <span>Enable Negative Marking Penalty</span>
             </label>
 
             {negativeMarkingEnabled && (
               <div className="flex items-center gap-2">
-                <span className="text-slate-400">Penalty Points:</span>
+                <span className="text-slate-600 font-semibold">Penalty Points:</span>
                 <input
                   type="number"
                   min={0}
@@ -501,7 +584,7 @@ export const QuestionEditorPage: React.FC = () => {
                   disabled={isLocked}
                   value={negativePoints}
                   onChange={(e) => setNegativePoints(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                  className="w-20 px-2 py-1 rounded bg-slate-950 border border-slate-700 text-red-400 font-bold focus:ring-1 focus:ring-brand-500"
+                  className="w-20 px-2 py-1 rounded bg-white border border-slate-300 text-rose-600 font-bold focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
             )}
@@ -509,71 +592,69 @@ export const QuestionEditorPage: React.FC = () => {
 
           {/* Title */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-mono text-slate-400">Question Title</label>
+            <label className="block text-xs font-semibold text-slate-700">Question Title</label>
             <input
               type="text"
               disabled={isLocked}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Reverse a Linked List / Python List Comprehension"
-              className="w-full px-3.5 py-2.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 text-sm font-sans focus:ring-1 focus:ring-brand-500"
+              className="w-full px-3.5 py-2.5 rounded-lg bg-white border border-slate-300 text-slate-900 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
             />
           </div>
 
           {/* Tags */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-mono text-slate-400">Tags (Comma-separated)</label>
+            <label className="block text-xs font-semibold text-slate-700">Tags (Comma-separated)</label>
             <input
               type="text"
               disabled={isLocked}
               value={tagsInput}
               onChange={(e) => setTagsInput(e.target.value)}
               placeholder="Python, Algorithms, Arrays, Recursion"
-              className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 text-xs font-mono focus:ring-1 focus:ring-brand-500"
+              className="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-emerald-500"
             />
           </div>
 
           {/* Description / Statement */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-mono text-slate-400">Problem Statement / Prompt (Markdown)</label>
+            <label className="block text-xs font-semibold text-slate-700">Problem Statement / Prompt (Markdown)</label>
             <textarea
               rows={5}
               disabled={isLocked}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Describe the question context, problem statement, or background prompt..."
-              className="w-full px-3.5 py-2.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 text-sm font-sans focus:ring-1 focus:ring-brand-500"
+              className="w-full px-3.5 py-2.5 rounded-lg bg-white border border-slate-300 text-slate-900 text-sm focus:ring-2 focus:ring-emerald-500"
             />
           </div>
 
           {/* Instructions */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-mono text-slate-400">Student Instructions (Optional)</label>
+            <label className="block text-xs font-semibold text-slate-700">Student Instructions (Optional)</label>
             <input
               type="text"
               disabled={isLocked}
               value={instructions}
               onChange={(e) => setInstructions(e.target.value)}
               placeholder="e.g. Select the single best answer. No partial credit."
-              className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 text-xs focus:ring-1 focus:ring-brand-500"
+              className="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-emerald-500"
             />
           </div>
         </Card>
 
         {/* Section 2: Type-Specific Configuration */}
-        <Card className="p-6 space-y-6 border-slate-800/80">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-            <h2 className="text-base font-bold text-white flex items-center gap-2">
-              {questionType === 'CODING' ? (
-                <Code2 className="w-5 h-5 text-brand-400" />
-              ) : questionType === 'SQL' ? (
-                <Database className="w-5 h-5 text-cyan-400" />
+        <Card className="p-6 space-y-6">
+          <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              {questionType === 'SQL' ? (
+                <Database className="w-5 h-5 text-cyan-600" />
               ) : questionType === 'TRUE_FALSE' ? (
-                <Binary className="w-5 h-5 text-emerald-400" />
+                <Binary className="w-5 h-5 text-emerald-600" />
               ) : questionType === 'SHORT_ANSWER' ? (
-                <AlignLeft className="w-5 h-5 text-amber-400" />
+                <AlignLeft className="w-5 h-5 text-amber-600" />
               ) : (
-                <CheckSquare className="w-5 h-5 text-purple-400" />
+                <CheckSquare className="w-5 h-5 text-purple-600" />
               )}
               {questionType} Configuration
             </h2>
@@ -582,7 +663,7 @@ export const QuestionEditorPage: React.FC = () => {
           {/* MCQ / Multi-Select */}
           {(questionType === 'MCQ' || questionType === 'MULTI_SELECT') && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between text-xs font-mono text-slate-400">
+              <div className="flex items-center justify-between text-xs text-slate-600 font-semibold">
                 <span>Configure Options & Select Correct Choice(s)</span>
                 {!isLocked && (
                   <Button type="button" variant="secondary" size="sm" onClick={handleAddOption}>
@@ -597,8 +678,8 @@ export const QuestionEditorPage: React.FC = () => {
                   return (
                     <div
                       key={idx}
-                      className={`flex items-center gap-3 p-3 rounded-xl border ${
-                        isChecked ? 'bg-brand-500/5 border-brand-500/40' : 'bg-slate-900/60 border-slate-800'
+                      className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                        isChecked ? 'bg-emerald-50/60 border-emerald-300' : 'bg-white border-slate-200'
                       }`}
                     >
                       {questionType === 'MCQ' ? (
@@ -608,7 +689,7 @@ export const QuestionEditorPage: React.FC = () => {
                           disabled={isLocked}
                           checked={isChecked}
                           onChange={() => setCorrectOptions([opt.id])}
-                          className="text-brand-500 focus:ring-brand-500 h-4 w-4 bg-slate-900 border-slate-700"
+                          className="text-emerald-600 focus:ring-emerald-500 h-4 w-4 bg-white border-slate-300"
                         />
                       ) : (
                         <input
@@ -622,11 +703,11 @@ export const QuestionEditorPage: React.FC = () => {
                               setCorrectOptions(correctOptions.filter((id) => id !== opt.id));
                             }
                           }}
-                          className="rounded text-brand-500 focus:ring-brand-500 h-4 w-4 bg-slate-900 border-slate-700"
+                          className="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 bg-white border-slate-300"
                         />
                       )}
 
-                      <span className="font-mono font-bold text-brand-400 w-6">{opt.id}.</span>
+                      <span className="font-mono font-bold text-emerald-700 w-6">{opt.id}.</span>
 
                       <input
                         type="text"
@@ -638,14 +719,14 @@ export const QuestionEditorPage: React.FC = () => {
                           setOptions(updated);
                         }}
                         placeholder={`Option ${opt.id} text...`}
-                        className="flex-1 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 text-xs font-sans focus:ring-1 focus:ring-brand-500"
+                        className="flex-1 px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-emerald-500"
                       />
 
                       {!isLocked && options.length > 2 && (
                         <button
                           type="button"
                           onClick={() => handleRemoveOption(idx)}
-                          className="text-slate-500 hover:text-red-400 p-1"
+                          className="text-slate-400 hover:text-rose-600 p-1"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -659,8 +740,8 @@ export const QuestionEditorPage: React.FC = () => {
 
           {/* True / False */}
           {questionType === 'TRUE_FALSE' && (
-            <div className="space-y-3 font-mono text-xs">
-              <label className="block text-slate-400">Select Correct Answer</label>
+            <div className="space-y-3 text-xs">
+              <label className="block text-slate-700 font-semibold">Select Correct Answer</label>
               <div className="flex gap-4">
                 <button
                   type="button"
@@ -668,8 +749,8 @@ export const QuestionEditorPage: React.FC = () => {
                   onClick={() => setTfCorrect(true)}
                   className={`px-6 py-3 rounded-xl border font-bold text-sm transition-all ${
                     tfCorrect === true
-                      ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
-                      : 'bg-slate-900 border-slate-800 text-slate-400'
+                      ? 'bg-emerald-50 border-emerald-400 text-emerald-700 shadow-sm'
+                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
                   }`}
                 >
                   TRUE
@@ -680,8 +761,8 @@ export const QuestionEditorPage: React.FC = () => {
                   onClick={() => setTfCorrect(false)}
                   className={`px-6 py-3 rounded-xl border font-bold text-sm transition-all ${
                     tfCorrect === false
-                      ? 'bg-rose-500/20 border-rose-500 text-rose-300'
-                      : 'bg-slate-900 border-slate-800 text-slate-400'
+                      ? 'bg-rose-50 border-rose-400 text-rose-700 shadow-sm'
+                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
                   }`}
                 >
                   FALSE
@@ -692,47 +773,47 @@ export const QuestionEditorPage: React.FC = () => {
 
           {/* Short Answer */}
           {questionType === 'SHORT_ANSWER' && (
-            <div className="space-y-4 font-mono text-xs">
+            <div className="space-y-4 text-xs">
               <div className="space-y-1.5">
-                <label className="block text-slate-400">Accepted Answer Tokens (Comma-separated)</label>
+                <label className="block text-slate-700 font-semibold">Accepted Answer Tokens (Comma-separated)</label>
                 <input
                   type="text"
                   disabled={isLocked}
                   value={acceptedAnswersInput}
                   onChange={(e) => setAcceptedAnswersInput(e.target.value)}
                   placeholder="80, port 80, 80/tcp"
-                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 focus:ring-1 focus:ring-brand-500"
+                  className="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-900 focus:ring-2 focus:ring-emerald-500 font-mono"
                 />
               </div>
 
-              <div className="flex flex-wrap gap-6 p-3 rounded-xl bg-slate-900/60 border border-slate-800">
-                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+              <div className="flex flex-wrap gap-6 p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <label className="flex items-center gap-2 cursor-pointer text-slate-700 font-medium">
                   <input
                     type="checkbox"
                     disabled={isLocked}
                     checked={caseSensitive}
                     onChange={(e) => setCaseSensitive(e.target.checked)}
-                    className="rounded text-brand-500 focus:ring-brand-500 h-4 w-4 bg-slate-900 border-slate-700"
+                    className="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 bg-white border-slate-300"
                   />
                   <span>Case Sensitive Matching</span>
                 </label>
-                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                <label className="flex items-center gap-2 cursor-pointer text-slate-700 font-medium">
                   <input
                     type="checkbox"
                     disabled={isLocked}
                     checked={trimWhitespace}
                     onChange={(e) => setTrimWhitespace(e.target.checked)}
-                    className="rounded text-brand-500 focus:ring-brand-500 h-4 w-4 bg-slate-900 border-slate-700"
+                    className="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 bg-white border-slate-300"
                   />
                   <span>Trim Leading/Trailing Whitespace</span>
                 </label>
-                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                <label className="flex items-center gap-2 cursor-pointer text-slate-700 font-medium">
                   <input
                     type="checkbox"
                     disabled={isLocked}
                     checked={normalizeSpaces}
                     onChange={(e) => setNormalizeSpaces(e.target.checked)}
-                    className="rounded text-brand-500 focus:ring-brand-500 h-4 w-4 bg-slate-900 border-slate-700"
+                    className="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 bg-white border-slate-300"
                   />
                   <span>Normalize Internal Spaces</span>
                 </label>
@@ -740,232 +821,54 @@ export const QuestionEditorPage: React.FC = () => {
             </div>
           )}
 
-          {/* Coding Problem Config */}
-          {questionType === 'CODING' && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 font-mono text-xs">
-                <div className="space-y-1.5">
-                  <label className="block text-slate-400">Time Limit (ms)</label>
-                  <input
-                    type="number"
-                    disabled={isLocked}
-                    value={timeLimitMs}
-                    onChange={(e) => setTimeLimitMs(parseInt(e.target.value, 10) || 2000)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 focus:ring-1 focus:ring-brand-500"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="block text-slate-400">Memory Limit (MB)</label>
-                  <input
-                    type="number"
-                    disabled={isLocked}
-                    value={memoryLimitMb}
-                    onChange={(e) => setMemoryLimitMb(parseInt(e.target.value, 10) || 256)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 focus:ring-1 focus:ring-brand-500"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="block text-slate-400">Allowed Languages</label>
-                  <div className="flex items-center gap-3 pt-2">
-                    {(['PYTHON', 'CPP', 'JAVA'] as CodingLanguage[]).map((lang) => (
-                      <label key={lang} className="flex items-center gap-1.5 cursor-pointer text-slate-300">
-                        <input
-                          type="checkbox"
-                          disabled={isLocked}
-                          checked={allowedLanguages.includes(lang)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setAllowedLanguages([...allowedLanguages, lang]);
-                            } else {
-                              setAllowedLanguages(allowedLanguages.filter((l) => l !== lang));
-                            }
-                          }}
-                          className="rounded text-brand-500 focus:ring-brand-500 h-3.5 w-3.5 bg-slate-900 border-slate-700"
-                        />
-                        <span>{lang}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </div>
 
-              <div className="space-y-1.5 font-mono text-xs">
-                <label className="block text-slate-400">Problem Constraints</label>
-                <textarea
-                  rows={2}
-                  disabled={isLocked}
-                  value={codingConstraints}
-                  onChange={(e) => setCodingConstraints(e.target.value)}
-                  placeholder="e.g. 1 <= N <= 10^5, -10^9 <= nums[i] <= 10^9"
-                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 focus:ring-1 focus:ring-brand-500"
-                />
-              </div>
-
-              {/* Test Case Manager with Scoring Invariant Meter */}
-              <div className="space-y-4 pt-4 border-t border-slate-800">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div>
-                    <h3 className="text-sm font-bold text-white font-mono">Test Cases & Evaluation Pipeline</h3>
-                    <p className="text-xs text-slate-400">
-                      SUM(test_cases.points) must equal total question points ({points})
-                    </p>
-                  </div>
-
-                  {/* Live Point Invariant Meter */}
-                  <div className="flex items-center gap-3 font-mono text-xs">
-                    <span
-                      className={`px-3 py-1.5 rounded-lg border font-bold ${
-                        assignedTestPoints === points
-                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                          : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                      }`}
-                    >
-                      Assigned: {assignedTestPoints} / {points} pts{' '}
-                      {remainingTestPoints !== 0 && `(${remainingTestPoints > 0 ? `+${remainingTestPoints} remaining` : `${remainingTestPoints} over`})`}
-                    </span>
-
-                    {!isLocked && (
-                      <Button type="button" variant="secondary" size="sm" onClick={handleAddTestCase}>
-                        <Plus className="w-3.5 h-3.5 mr-1" /> Add Test Case
-                      </Button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  {testCases.map((tc, idx) => (
-                    <div key={idx} className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3 font-mono text-xs">
-                      <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
-                        <span className="font-bold text-slate-200">Test Case #{idx + 1}</span>
-                        <div className="flex items-center gap-4">
-                          <label className="flex items-center gap-1.5 cursor-pointer text-slate-400">
-                            <input
-                              type="checkbox"
-                              disabled={isLocked}
-                              checked={tc.is_hidden}
-                              onChange={(e) => {
-                                const updated = [...testCases];
-                                updated[idx].is_hidden = e.target.checked;
-                                setTestCases(updated);
-                              }}
-                              className="rounded text-brand-500 focus:ring-brand-500 h-3.5 w-3.5 bg-slate-900 border-slate-700"
-                            />
-                            <span>Hidden from Students</span>
-                          </label>
-
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400">Points:</span>
-                            <input
-                              type="number"
-                              min={1}
-                              disabled={isLocked}
-                              value={tc.points}
-                              onChange={(e) => {
-                                const updated = [...testCases];
-                                updated[idx].points = Math.max(1, parseInt(e.target.value, 10) || 1);
-                                setTestCases(updated);
-                              }}
-                              className="w-16 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-brand-400 font-bold focus:ring-1 focus:ring-brand-500"
-                            />
-                          </div>
-
-                          {!isLocked && testCases.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveTestCase(idx)}
-                              className="text-slate-500 hover:text-red-400 p-1"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-slate-500 mb-1">Standard Input (stdin)</label>
-                          <textarea
-                            rows={3}
-                            disabled={isLocked}
-                            value={tc.input_data}
-                            onChange={(e) => {
-                              const updated = [...testCases];
-                              updated[idx].input_data = e.target.value;
-                              setTestCases(updated);
-                            }}
-                            placeholder="Input values..."
-                            className="w-full p-2 rounded bg-slate-950 border border-slate-800 text-slate-200 focus:ring-1 focus:ring-brand-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-slate-500 mb-1">Expected Output (stdout)</label>
-                          <textarea
-                            rows={3}
-                            disabled={isLocked}
-                            value={tc.expected_output}
-                            onChange={(e) => {
-                              const updated = [...testCases];
-                              updated[idx].expected_output = e.target.value;
-                              setTestCases(updated);
-                            }}
-                            placeholder="Exact expected output..."
-                            className="w-full p-2 rounded bg-slate-950 border border-slate-800 text-slate-200 focus:ring-1 focus:ring-brand-500"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* SQL Sandbox Config */}
           {questionType === 'SQL' && (
-            <div className="space-y-4 font-mono text-xs">
+            <div className="space-y-4 text-xs font-mono">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="block text-slate-400">SQL Dialect</label>
+                  <label className="block text-slate-700 font-semibold">SQL Dialect</label>
                   <input
                     type="text"
                     disabled
                     value={allowedDialect}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-400"
+                    className="w-full px-3 py-2 rounded-lg bg-slate-100 border border-slate-300 text-slate-600 font-medium"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="block text-slate-400">Execution Timeout (ms)</label>
+                  <label className="block text-slate-700 font-semibold">Execution Timeout (ms)</label>
                   <input
                     type="number"
                     disabled={isLocked}
                     value={sqlTimeLimitMs}
                     onChange={(e) => setSqlTimeLimitMs(parseInt(e.target.value, 10) || 3000)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 focus:ring-1 focus:ring-brand-500"
+                    className="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-900 focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-slate-400">Schema Setup DDL / Seed Data SQL</label>
+                <label className="block text-slate-700 font-semibold">Schema Setup DDL / Seed Data SQL</label>
                 <textarea
                   rows={4}
                   disabled={isLocked}
                   value={schemaSetupSql}
                   onChange={(e) => setSchemaSetupSql(e.target.value)}
                   placeholder="CREATE TABLE employees (id INT, name VARCHAR(50), salary INT); INSERT INTO employees VALUES (1, 'Alice', 90000);"
-                  className="w-full p-3 rounded-lg bg-slate-950 border border-slate-800 text-cyan-300 focus:ring-1 focus:ring-brand-500"
+                  className="w-full p-3 rounded-lg bg-slate-900 border border-slate-800 text-cyan-300 focus:ring-2 focus:ring-emerald-500 font-mono"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-slate-400">Expected Result Definition Query</label>
+                <label className="block text-slate-700 font-semibold">Expected Result Definition Query</label>
                 <textarea
                   rows={3}
                   disabled={isLocked}
                   value={expectedResultDef}
                   onChange={(e) => setExpectedResultDef(e.target.value)}
                   placeholder="SELECT name, salary FROM employees WHERE salary > 80000 ORDER BY salary DESC;"
-                  className="w-full p-3 rounded-lg bg-slate-950 border border-slate-800 text-cyan-300 focus:ring-1 focus:ring-brand-500"
+                  className="w-full p-3 rounded-lg bg-slate-900 border border-slate-800 text-cyan-300 focus:ring-2 focus:ring-emerald-500 font-mono"
                 />
               </div>
             </div>
@@ -973,7 +876,7 @@ export const QuestionEditorPage: React.FC = () => {
         </Card>
 
         {/* Action Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-slate-200">
           <Button variant="ghost" size="md" onClick={() => navigate('/admin/questions')}>
             Cancel
           </Button>
@@ -1019,6 +922,7 @@ export const QuestionEditorPage: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
 
       {/* Preview Modal */}
       <QuestionPreviewModal

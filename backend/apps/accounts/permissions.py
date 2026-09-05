@@ -3,7 +3,8 @@ from .models import Role
 
 class IsAdmin(BasePermission):
     """
-    Allows access only to authenticated users with ADMIN role or staff privileges.
+    Allows access only to authenticated active users with the authoritative ADMIN role.
+    is_staff is NOT used as an authorization bypass.
     """
     message = "Administrator privileges required to access this resource."
 
@@ -13,7 +14,7 @@ class IsAdmin(BasePermission):
             user and
             user.is_authenticated and
             user.is_active and
-            (user.role == Role.ADMIN or user.is_staff or user.is_superuser)
+            user.role == Role.ADMIN
         )
 
 

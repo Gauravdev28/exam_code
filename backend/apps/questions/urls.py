@@ -3,20 +3,38 @@ from .views import (
     AdminQuestionListView,
     AdminQuestionDetailView,
     AdminQuestionArchiveView,
+    AdminQuestionUsageView,
+    AdminQuestionRunSandboxView,
     AdminQuestionVersionListView,
     AdminQuestionVersionDetailView,
     AdminQuestionVersionPublishView,
     AdminQuestionVersionArchiveView,
     AdminQuestionVersionPreviewView,
     AdminTagListView,
+    AdminQuestionTemplateDownloadView,
+    AdminQuestionSpreadsheetPreviewView,
+    AdminQuestionSpreadsheetConfirmView,
+    AdminQuestionImageExtractView,
+    AdminQuestionTempImageView,
 )
 
 app_name = 'questions'
 
 urlpatterns = [
+    # Ingestion: Spreadsheet (Excel/CSV) & Image OCR Extraction
+    path('admin/questions/import/template/', AdminQuestionTemplateDownloadView.as_view(), name='admin-question-import-template'),
+    path('admin/questions/import/preview/', AdminQuestionSpreadsheetPreviewView.as_view(), name='admin-question-import-preview'),
+    path('admin/questions/import/confirm/', AdminQuestionSpreadsheetConfirmView.as_view(), name='admin-question-import-confirm'),
+    path('admin/questions/extract-image/', AdminQuestionImageExtractView.as_view(), name='admin-question-extract-image'),
+    path('admin/questions/temp-image/<str:image_id>/', AdminQuestionTempImageView.as_view(), name='admin-question-temp-image'),
+
+    # Sandbox Execution (Admin untrusted code runner via Judge0)
+    path('admin/questions/run-sandbox/', AdminQuestionRunSandboxView.as_view(), name='admin-question-run-sandbox'),
+
     # Question CRUD & Roster
     path('admin/questions/', AdminQuestionListView.as_view(), name='admin-question-list'),
     path('admin/questions/<uuid:pk>/', AdminQuestionDetailView.as_view(), name='admin-question-detail'),
+    path('admin/questions/<uuid:pk>/usage/', AdminQuestionUsageView.as_view(), name='admin-question-usage'),
     path('admin/questions/<uuid:pk>/archive/', AdminQuestionArchiveView.as_view(), name='admin-question-archive'),
 
     # Question Versions

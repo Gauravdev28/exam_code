@@ -52,18 +52,36 @@ export const updateStudent = async (
 };
 
 export const disableStudent = async (
-  id: string
+  id: string,
+  reason?: string
 ): Promise<APIResponse<StudentProfile>> => {
-  const response = await apiClient.post<APIResponse<StudentProfile>>(`/admin/students/${id}/disable/`);
+  const response = await apiClient.post<APIResponse<StudentProfile>>(`/admin/students/${id}/disable/`, {
+    reason,
+  });
   return response.data;
 };
 
 export const enableStudent = async (
-  id: string
+  id: string,
+  reason?: string
 ): Promise<APIResponse<StudentProfile>> => {
-  const response = await apiClient.post<APIResponse<StudentProfile>>(`/admin/students/${id}/enable/`);
+  const response = await apiClient.post<APIResponse<StudentProfile>>(`/admin/students/${id}/enable/`, {
+    reason,
+  });
   return response.data;
 };
+
+export const resetStudentPassword = async (
+  id: string,
+  payload: { reason: string; temporary_password: string; confirm_temporary_password: string }
+): Promise<APIResponse<{ temporary_password: string; student: any }>> => {
+  const response = await apiClient.post<APIResponse<{ temporary_password: string; student: any }>>(
+    `/admin/students/${id}/reset-password/`,
+    payload
+  );
+  return response.data;
+};
+
 
 export const previewStudentImport = async (
   file: File
@@ -99,5 +117,12 @@ export const changeUserPassword = async (
   payload: ChangePasswordPayload
 ): Promise<APIResponse<User>> => {
   const response = await apiClient.post<APIResponse<User>>('/auth/change-password/', payload);
+  return response.data;
+};
+
+export const deleteStudentAccount = async (
+  studentId: string
+): Promise<APIResponse<void>> => {
+  const response = await apiClient.delete<APIResponse<void>>(`/admin/students/${studentId}/`);
   return response.data;
 };

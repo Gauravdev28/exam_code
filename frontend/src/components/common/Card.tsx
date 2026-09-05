@@ -6,13 +6,12 @@ interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   glass?: boolean;
 }
 
-export const Card: React.FC<CardProps> = ({ children, glass = true, className, ...props }) => {
+export const Card: React.FC<CardProps> = ({ children, glass = false, className, ...props }) => {
   return (
     <div
       className={twMerge(
         clsx(
-          'rounded-xl p-6 transition-all duration-200',
-          glass ? 'glass-panel shadow-xl' : 'bg-slate-900 border border-slate-800',
+          'rounded-xl p-6 transition-all duration-200 bg-white border border-slate-200/90 shadow-sm text-slate-800',
           className
         )
       )}

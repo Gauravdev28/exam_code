@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+backend/apps/questions/bin/
 .Python
 env/
 build/

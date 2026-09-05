@@ -112,8 +112,19 @@ def custom_exception_handler(exc, context):
             message = str(details.pop("detail"))
         elif "message" in details:
             message = str(details.pop("message"))
+        elif details:
+            # Format field validation errors into a clear, readable summary
+            field_errors = []
+            for field, errs in details.items():
+                if isinstance(errs, list):
+                    err_str = ", ".join(str(e) for e in errs)
+                else:
+                    err_str = str(errs)
+                field_errors.append(f"{field}: {err_str}")
+            if field_errors:
+                message = "; ".join(field_errors)
     elif isinstance(details, list) and len(details) > 0:
-        message = str(details[0])
+        message = "; ".join(str(e) for e in details)
 
     response.data = {
         "status": "error",

@@ -71,49 +71,49 @@ export const QuestionPreviewModal: React.FC<QuestionPreviewModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
-      <Card className="max-w-3xl w-full p-6 space-y-6 border-slate-800 shadow-2xl relative my-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
+      <Card className="max-w-3xl w-full p-6 space-y-6 bg-white border border-slate-200 shadow-2xl relative my-8">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-slate-200"
+          className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-brand-500/10 text-brand-400 border border-brand-500/20">
+            <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200">
               <Eye className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-white">Student Assessment Preview</h3>
+                <h3 className="text-base font-bold text-slate-900">Student Assessment Preview</h3>
                 {data && (
                   <Badge variant="neutral">v{data.version_number}</Badge>
                 )}
               </div>
-              <p className="text-xs text-slate-400">Previewing exact student view and rendering interface</p>
+              <p className="text-xs text-slate-500">Previewing exact student view and rendering interface</p>
             </div>
           </div>
         </div>
 
         {errorMessage && (
-          <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 flex items-start gap-2.5 text-red-300 text-xs">
-            <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+          <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 flex items-start gap-2.5 text-rose-800 text-xs">
+            <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
             <span>{errorMessage}</span>
           </div>
         )}
 
         {isLoading ? (
           <div className="py-12 flex flex-col items-center justify-center space-y-3">
-            <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs text-slate-400 font-mono">Loading preview configuration...</p>
+            <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs text-slate-500 font-mono">Loading preview configuration...</p>
           </div>
         ) : data ? (
           <div className="space-y-6">
             {/* Question Meta Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 text-xs font-mono">
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
               <div className="flex items-center gap-2">
                 <Badge variant="info">{data.question_type}</Badge>
                 <Badge
@@ -128,23 +128,23 @@ export const QuestionPreviewModal: React.FC<QuestionPreviewModalProps> = ({
                   {data.difficulty}
                 </Badge>
               </div>
-              <div className="flex items-center gap-4 text-slate-300 font-semibold">
-                <span>Points: <span className="text-brand-400">{data.points}</span></span>
+              <div className="flex items-center gap-4 text-slate-700 font-semibold font-mono">
+                <span>Points: <span className="text-emerald-700 font-bold">{data.points}</span></span>
                 {data.negative_marking_enabled && (
-                  <span className="text-red-400">Penalty: -{data.negative_points}</span>
+                  <span className="text-rose-600">Penalty: -{data.negative_points}</span>
                 )}
               </div>
             </div>
 
             {/* Title & Description */}
             <div className="space-y-3">
-              <h2 className="text-lg font-bold text-white">{data.title}</h2>
-              <div className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap font-sans bg-slate-900/30 p-4 rounded-xl border border-slate-800/60">
+              <h2 className="text-lg font-bold text-slate-900">{data.title}</h2>
+              <div className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap font-sans bg-slate-50 p-4 rounded-xl border border-slate-200">
                 {data.description}
               </div>
               {data.instructions && (
-                <div className="p-3 rounded-lg bg-brand-500/5 border border-brand-500/20 text-xs text-brand-300 flex items-start gap-2">
-                  <HelpCircle className="w-4 h-4 text-brand-400 flex-shrink-0 mt-0.5" />
+                <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-start gap-2">
+                  <HelpCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
                   <span><strong>Instructions:</strong> {data.instructions}</span>
                 </div>
               )}
@@ -154,7 +154,7 @@ export const QuestionPreviewModal: React.FC<QuestionPreviewModalProps> = ({
             <div className="pt-2">
               {data.question_type === 'MCQ' && (
                 <div className="space-y-2.5">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 font-mono">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-600 font-mono">
                     Select One Option
                   </label>
                   <div className="space-y-2">
@@ -163,8 +163,8 @@ export const QuestionPreviewModal: React.FC<QuestionPreviewModalProps> = ({
                         key={opt.id}
                         className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
                           selectedOption === opt.id
-                            ? 'bg-brand-500/10 border-brand-500 text-white'
-                            : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:border-slate-700'
+                            ? 'bg-emerald-50/70 border-emerald-400 text-slate-900 shadow-sm'
+                            : 'bg-white border-slate-200 text-slate-800 hover:bg-slate-50'
                         }`}
                       >
                         <input
@@ -172,10 +172,10 @@ export const QuestionPreviewModal: React.FC<QuestionPreviewModalProps> = ({
                           name="mcq_preview"
                           checked={selectedOption === opt.id}
                           onChange={() => setSelectedOption(opt.id)}
-                          className="text-brand-500 focus:ring-brand-500 h-4 w-4 bg-slate-900 border-slate-700"
+                          className="text-emerald-600 focus:ring-emerald-500 h-4 w-4 bg-white border-slate-300"
                         />
-                        <span className="font-mono font-bold text-brand-400 w-5">{opt.id}.</span>
-                        <span className="text-sm">{opt.text}</span>
+                        <span className="font-mono font-bold text-emerald-700 w-5">{opt.id}.</span>
+                        <span className="text-sm font-medium">{opt.text}</span>
                       </label>
                     ))}
                   </div>
@@ -184,7 +184,7 @@ export const QuestionPreviewModal: React.FC<QuestionPreviewModalProps> = ({
 
               {data.question_type === 'MULTI_SELECT' && (
                 <div className="space-y-2.5">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 font-mono">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-600 font-mono">
                     Select All That Apply
                   </label>
                   <div className="space-y-2">
@@ -195,8 +195,8 @@ export const QuestionPreviewModal: React.FC<QuestionPreviewModalProps> = ({
                           key={opt.id}
                           className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
                             isChecked
-                              ? 'bg-brand-500/10 border-brand-500 text-white'
-                              : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:border-slate-700'
+                              ? 'bg-emerald-50/70 border-emerald-400 text-slate-900 shadow-sm'
+                              : 'bg-white border-slate-200 text-slate-800 hover:bg-slate-50'
                           }`}
                         >
                           <input
@@ -209,10 +209,10 @@ export const QuestionPreviewModal: React.FC<QuestionPreviewModalProps> = ({
                                 setSelectedMulti(selectedMulti.filter((id) => id !== opt.id));
                               }
                             }}
-                            className="rounded text-brand-500 focus:ring-brand-500 h-4 w-4 bg-slate-900 border-slate-700"
+                            className="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 bg-white border-slate-300"
                           />
-                          <span className="font-mono font-bold text-brand-400 w-5">{opt.id}.</span>
-                          <span className="text-sm">{opt.text}</span>
+                          <span className="font-mono font-bold text-emerald-700 w-5">{opt.id}.</span>
+                          <span className="text-sm font-medium">{opt.text}</span>
                         </label>
                       );
                     })}
@@ -222,7 +222,7 @@ export const QuestionPreviewModal: React.FC<QuestionPreviewModalProps> = ({
 
               {data.question_type === 'TRUE_FALSE' && (
                 <div className="space-y-2.5">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 font-mono">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-600 font-mono">
                     Select Answer
                   </label>
                   <div className="grid grid-cols-2 gap-3">
@@ -231,8 +231,8 @@ export const QuestionPreviewModal: React.FC<QuestionPreviewModalProps> = ({
                       onClick={() => setTfAnswer(true)}
                       className={`p-4 rounded-xl border font-bold text-sm transition-all flex items-center justify-center gap-2 ${
                         tfAnswer === true
-                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
-                          : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:border-slate-700'
+                          ? 'bg-emerald-50 border-emerald-400 text-emerald-700 shadow-sm'
+                          : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
                       }`}
                     >
                       <CheckCircle2 className="w-4 h-4" />
@@ -243,8 +243,8 @@ export const QuestionPreviewModal: React.FC<QuestionPreviewModalProps> = ({
                       onClick={() => setTfAnswer(false)}
                       className={`p-4 rounded-xl border font-bold text-sm transition-all flex items-center justify-center gap-2 ${
                         tfAnswer === false
-                          ? 'bg-rose-500/20 border-rose-500 text-rose-300'
-                          : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:border-slate-700'
+                          ? 'bg-rose-50 border-rose-400 text-rose-700 shadow-sm'
+                          : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
                       }`}
                     >
                       <X className="w-4 h-4" />
@@ -256,7 +256,7 @@ export const QuestionPreviewModal: React.FC<QuestionPreviewModalProps> = ({
 
               {data.question_type === 'SHORT_ANSWER' && (
                 <div className="space-y-2.5">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 font-mono">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-600 font-mono">
                     Your Answer
                   </label>
                   <input
@@ -264,57 +264,57 @@ export const QuestionPreviewModal: React.FC<QuestionPreviewModalProps> = ({
                     value={shortText}
                     onChange={(e) => setShortText(e.target.value)}
                     placeholder="Type your answer here..."
-                    className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-brand-500"
+                    className="w-full px-4 py-3 rounded-xl bg-white border border-slate-300 text-slate-900 font-mono text-sm focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
               )}
 
               {data.question_type === 'CODING' && data.coding_config && (
                 <div className="space-y-4">
-                  <div className="flex flex-wrap items-center gap-4 text-xs font-mono text-slate-400 p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                  <div className="flex flex-wrap items-center gap-4 text-xs font-mono text-slate-700 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
                     <div className="flex items-center gap-1.5">
-                      <Code2 className="w-4 h-4 text-brand-400" />
-                      <span>Languages: <strong className="text-slate-200">{data.coding_config.allowed_languages.join(', ')}</strong></span>
+                      <Code2 className="w-4 h-4 text-emerald-600" />
+                      <span>Languages: <strong className="text-slate-900">{data.coding_config.allowed_languages.join(', ')}</strong></span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <Clock className="w-4 h-4 text-amber-400" />
-                      <span>Time: <strong className="text-slate-200">{data.coding_config.time_limit_ms} ms</strong></span>
+                      <Clock className="w-4 h-4 text-amber-600" />
+                      <span>Time: <strong className="text-slate-900">{data.coding_config.time_limit_ms} ms</strong></span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <HardDrive className="w-4 h-4 text-cyan-400" />
-                      <span>Memory: <strong className="text-slate-200">{data.coding_config.memory_limit_mb} MB</strong></span>
+                      <HardDrive className="w-4 h-4 text-sky-600" />
+                      <span>Memory: <strong className="text-slate-900">{data.coding_config.memory_limit_mb} MB</strong></span>
                     </div>
                   </div>
 
                   {data.coding_config.constraints && (
-                    <div className="p-3 rounded-xl bg-slate-900/40 border border-slate-800/80">
-                      <h4 className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider mb-1">Constraints</h4>
-                      <p className="text-xs text-slate-300 font-mono whitespace-pre-wrap">{data.coding_config.constraints}</p>
+                    <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                      <h4 className="text-xs font-mono font-bold text-slate-600 uppercase tracking-wider mb-1">Constraints</h4>
+                      <p className="text-xs text-slate-800 font-mono whitespace-pre-wrap">{data.coding_config.constraints}</p>
                     </div>
                   )}
 
                   {/* Public Example Test Cases */}
                   <div className="space-y-3">
-                    <h4 className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <ListOrdered className="w-4 h-4 text-brand-400" />
+                    <h4 className="text-xs font-mono font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <ListOrdered className="w-4 h-4 text-emerald-600" />
                       Example Test Cases (Visible to Students)
                     </h4>
                     {data.coding_config.test_cases && data.coding_config.test_cases.length > 0 ? (
-                      <div className="space-y-2">
+                      <div className="space-y-2.5">
                         {data.coding_config.test_cases.map((tc, idx) => (
-                          <div key={idx} className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-xs font-mono space-y-2">
-                            <div className="flex justify-between text-slate-400 border-b border-slate-800/60 pb-1">
-                              <span>Example Case #{idx + 1}</span>
-                              <span className="text-brand-400">{tc.points} pts</span>
+                          <div key={idx} className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono space-y-2">
+                            <div className="flex justify-between text-slate-600 border-b border-slate-200 pb-1.5">
+                              <span className="font-bold text-slate-800">Example Case #{idx + 1}</span>
+                              <span className="text-emerald-700 font-bold">{tc.points} pts</span>
                             </div>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-2 gap-2.5">
                               <div>
-                                <span className="text-slate-500 block">Input:</span>
-                                <pre className="p-2 rounded bg-slate-950 text-slate-200 overflow-x-auto">{tc.input_data || '(empty)'}</pre>
+                                <span className="text-slate-500 block font-semibold mb-1">Input:</span>
+                                <pre className="p-2.5 rounded-lg bg-slate-900 text-slate-100 overflow-x-auto">{tc.input_data || '(empty)'}</pre>
                               </div>
                               <div>
-                                <span className="text-slate-500 block">Expected Output:</span>
-                                <pre className="p-2 rounded bg-slate-950 text-slate-200 overflow-x-auto">{tc.expected_output}</pre>
+                                <span className="text-slate-500 block font-semibold mb-1">Expected Output:</span>
+                                <pre className="p-2.5 rounded-lg bg-slate-900 text-slate-100 overflow-x-auto">{tc.expected_output}</pre>
                               </div>
                             </div>
                           </div>
@@ -329,20 +329,20 @@ export const QuestionPreviewModal: React.FC<QuestionPreviewModalProps> = ({
 
               {data.question_type === 'SQL' && data.sql_config && (
                 <div className="space-y-4">
-                  <div className="flex items-center gap-4 text-xs font-mono text-slate-400 p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                  <div className="flex items-center gap-4 text-xs font-mono text-slate-700 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
                     <div className="flex items-center gap-1.5">
-                      <Database className="w-4 h-4 text-cyan-400" />
-                      <span>Dialect: <strong className="text-slate-200">{data.sql_config.allowed_dialect}</strong></span>
+                      <Database className="w-4 h-4 text-cyan-600" />
+                      <span>Dialect: <strong className="text-slate-900">{data.sql_config.allowed_dialect}</strong></span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <Clock className="w-4 h-4 text-amber-400" />
-                      <span>Limit: <strong className="text-slate-200">{data.sql_config.time_limit_ms} ms</strong></span>
+                      <Clock className="w-4 h-4 text-amber-600" />
+                      <span>Limit: <strong className="text-slate-900">{data.sql_config.time_limit_ms} ms</strong></span>
                     </div>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-slate-900/40 border border-slate-800">
-                    <h4 className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider mb-2">Sandbox Tables / Schema Setup</h4>
-                    <pre className="p-3 rounded-lg bg-slate-950 text-cyan-300 font-mono text-xs overflow-x-auto border border-slate-800">
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                    <h4 className="text-xs font-mono font-bold text-slate-600 uppercase tracking-wider mb-2">Sandbox Tables / Schema Setup</h4>
+                    <pre className="p-3 rounded-lg bg-slate-900 text-cyan-300 font-mono text-xs overflow-x-auto border border-slate-800">
                       {data.sql_config.schema_setup_sql}
                     </pre>
                   </div>
@@ -352,8 +352,8 @@ export const QuestionPreviewModal: React.FC<QuestionPreviewModalProps> = ({
 
             {/* Tags */}
             {data.tags && data.tags.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-800/80">
-                <span className="text-xs text-slate-500 font-mono mr-1">Tags:</span>
+              <div className="flex flex-wrap items-center gap-1.5 pt-3 border-t border-slate-200">
+                <span className="text-xs text-slate-500 font-medium mr-1">Tags:</span>
                 {data.tags.map((t) => (
                   <Badge key={t.id} variant="neutral">#{t.name}</Badge>
                 ))}
@@ -362,7 +362,7 @@ export const QuestionPreviewModal: React.FC<QuestionPreviewModalProps> = ({
           </div>
         ) : null}
 
-        <div className="pt-3 flex justify-end border-t border-slate-800">
+        <div className="pt-3 flex justify-end border-t border-slate-200">
           <Button variant="secondary" size="sm" onClick={onClose}>
             Close Preview
           </Button>

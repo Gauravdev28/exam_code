@@ -57,6 +57,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'apps.accounts.middleware.SessionIdleTimeoutMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -173,6 +174,16 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOW_CREDENTIALS = True
 
+# CSRF Trusted Origins Configuration (parsed from environment without default localhost fallbacks)
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',')
+    if origin.strip()
+]
+CSRF_COOKIE_HTTPONLY = False  # Allows frontend client (Axios) to read csrftoken cookie
+CSRF_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SAMESITE = 'Lax'
+
 # Redis and Channel Layers
 REDIS_URL = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/0')
 CHANNEL_LAYERS = {
@@ -212,4 +223,8 @@ DSAR_MASTER_KEYS = {
     'v1': os.getenv('DSAR_MASTER_KEY_V1', '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'),
     'v2': os.getenv('DSAR_MASTER_KEY_V2', 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210'),
 }
+
+# Session Inactivity & Idle Timeout Policy (Phase 10.1 Post-Hardening)
+SESSION_IDLE_TIMEOUT_SECONDS = int(os.getenv('SESSION_IDLE_TIMEOUT_SECONDS', '1800'))  # 30 minutes
+SESSION_WARNING_SECONDS = int(os.getenv('SESSION_WARNING_SECONDS', '120'))             # 2 minutes warning
 

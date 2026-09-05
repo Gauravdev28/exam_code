@@ -652,6 +652,96 @@ class QuestionService:
         return question
 
     @classmethod
+    def get_or_create_draft_version(
+        cls,
+        question: Question,
+        actor: Optional[User] = None,
+        request=None
+    ) -> Tuple[QuestionVersion, bool]:
+        """
+        If an existing editable DRAFT version already exists for the question, returns it.
+        Otherwise, creates the next sequential DRAFT version by deep-cloning the latest version.
+        Returns (version, created: bool).
+        """
+        existing_draft = question.versions.filter(status=VersionStatus.DRAFT).order_by('-version_number').first()
+        if existing_draft:
+            return existing_draft, False
+        new_version = cls.create_new_version(question=question, actor=actor, request=request)
+        return new_version, True
+
+    @classmethod
+    def get_question_usage(cls, question: Question) -> Dict[str, Any]:
+        """
+        Dependency-aware usage check across assessments, snapshots, attempts, results,
+        and legal holds/retention records.
+        """
+        from apps.assessments.models import AssessmentQuestion, AssessmentSnapshotQuestion, AttemptAnswer
+        from apps.retention.models import LegalHold, LegalHoldStatus
+
+        assessment_ids = list(
+            AssessmentQuestion.objects.filter(question_version__question=question)
+            .values_list('assessment_id', flat=True)
+            .distinct()
+        )
+        assessment_count = len(assessment_ids)
+        snapshot_count = AssessmentSnapshotQuestion.objects.filter(question_version__question=question).count()
+        attempt_answers_count = AttemptAnswer.objects.filter(snapshot_question__question_version__question=question).count()
+
+        has_legal_hold = False
+        if assessment_ids:
+            has_legal_hold = LegalHold.objects.filter(
+                attempt__assessment_id__in=assessment_ids,
+                status=LegalHoldStatus.ACTIVE
+            ).exists()
+
+        has_published_or_archived = question.versions.filter(
+            status__in=[VersionStatus.PUBLISHED, VersionStatus.ARCHIVED]
+        ).exists()
+
+        is_deletable = (
+            not has_published_or_archived
+            and assessment_count == 0
+            and snapshot_count == 0
+            and attempt_answers_count == 0
+            and not has_legal_hold
+        )
+
+        reasons = []
+        if assessment_count > 0:
+            reasons.append(f"referenced by {assessment_count} assessment(s)")
+        if snapshot_count > 0:
+            reasons.append(f"frozen in {snapshot_count} assessment snapshot(s)")
+        if attempt_answers_count > 0:
+            reasons.append(f"has {attempt_answers_count} recorded student answer(s)")
+        if has_legal_hold:
+            reasons.append("has an active legal hold on associated assessments")
+        if has_published_or_archived:
+            reasons.append("contains published or archived version history")
+
+        if not is_deletable:
+            reason_str = f"This question cannot be permanently deleted because it is {', '.join(reasons)}. Archive it instead to preserve examination integrity."
+        else:
+            reason_str = ""
+
+        latest_v = question.versions.order_by('-version_number').first()
+
+        return {
+            "question_id": str(question.id),
+            "title": latest_v.title if latest_v else "Unknown Question",
+            "question_type": question.question_type,
+            "version_count": question.versions.count(),
+            "latest_version_number": latest_v.version_number if latest_v else 1,
+            "status": question.status,
+            "assessment_count": assessment_count,
+            "snapshot_count": snapshot_count,
+            "attempt_answers_count": attempt_answers_count,
+            "has_legal_hold": has_legal_hold,
+            "has_published_or_archived": has_published_or_archived,
+            "is_deletable": is_deletable,
+            "reason_blocked": reason_str,
+        }
+
+    @classmethod
     def delete_draft_question(
         cls,
         question: Question,
@@ -659,16 +749,19 @@ class QuestionService:
         request=None
     ) -> None:
         """
-        Hard-deletes a logical question ONLY if it has never had a PUBLISHED or ARCHIVED version
-        and has zero historical references.
+        Hard-deletes a logical question ONLY if it is an unreferenced DRAFT.
+        If historical or protected dependencies exist, hard delete is blocked.
         """
-        if question.versions.filter(status__in=[VersionStatus.PUBLISHED, VersionStatus.ARCHIVED]).exists():
-            raise DRFValidationError(
-                "Cannot hard-delete a question that has published or historical versions. Use the archive action instead."
-            )
+        usage = cls.get_question_usage(question)
+        if not usage["is_deletable"]:
+            raise DRFValidationError({"detail": usage["reason_blocked"]})
 
         with transaction.atomic():
             q_id = str(question.id)
+            title = usage["title"]
+            q_type = usage["question_type"]
+            v_count = usage["version_count"]
+
             question.delete()
 
             AuditService.log(
@@ -676,7 +769,13 @@ class QuestionService:
                 actor=actor,
                 target_type="Question",
                 target_id=q_id,
-                metadata={"question_id": q_id},
+                metadata={
+                    "question_id": q_id,
+                    "title": title,
+                    "question_type": q_type,
+                    "version_count": v_count,
+                    "reason": "Administrative deletion of unreferenced draft question."
+                },
                 request=request
             )
 

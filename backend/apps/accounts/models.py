@@ -1,12 +1,13 @@
 import uuid
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from apps.core.models import UUIDModel, TimeStampedModel
 
 class Role(models.TextChoices):
     ADMIN = 'ADMIN', 'Admin'
     STUDENT = 'STUDENT', 'Student'
+    PROCTOR = 'PROCTOR', 'Proctor'
 
 
 class UserManager(BaseUserManager):
@@ -76,6 +77,38 @@ class User(AbstractBaseUser, PermissionsMixin, UUIDModel, TimeStampedModel):
         verbose_name="Staff Status",
         help_text="Designates whether the user can log into the Django admin site."
     )
+    admin_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_index=True,
+        verbose_name="Admin ID",
+        help_text="Authoritative unique administrative identifier."
+    )
+    display_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="Display Name",
+        help_text="Authoritative user display name."
+    )
+    first_login_required = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name="First Login Password Change Required",
+        help_text="Mandates password change upon next login."
+    )
+    primary_admin_marker = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        unique=True,
+        default=None,
+        db_index=True,
+        verbose_name="Primary Admin Singleton Marker",
+        help_text="Database-level singleton constraint. Exactly one row in the database may have marker='PRIMARY'; all other rows are NULL."
+    )
+
 
     objects = UserManager()
 
@@ -89,18 +122,125 @@ class User(AbstractBaseUser, PermissionsMixin, UUIDModel, TimeStampedModel):
         indexes = [
             models.Index(fields=['email', 'is_active']),
             models.Index(fields=['role', 'is_active']),
+            models.Index(fields=['admin_id']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['admin_id'],
+                condition=models.Q(role=Role.ADMIN) & ~models.Q(admin_id=''),
+                name='unique_admin_id_for_admins'
+            ),
+            models.CheckConstraint(
+                condition=models.Q(primary_admin_marker__isnull=True) | models.Q(primary_admin_marker='PRIMARY', role=Role.ADMIN),
+                name='primary_admin_marker_valid_state'
+            ),
         ]
 
     def __str__(self):
         return f"{self.email} ({self.role})"
 
+    def clean(self):
+        super().clean()
+        if self.email:
+            self.email = self.email.strip().lower()
+        if self.primary_admin_marker is not None and self.primary_admin_marker != 'PRIMARY':
+            raise ValidationError({"primary_admin_marker": "primary_admin_marker must be NULL or 'PRIMARY'."})
+        if self.primary_admin_marker == 'PRIMARY' and self.role != Role.ADMIN:
+            raise ValidationError({"primary_admin_marker": "Only accounts with role='ADMIN' may have primary_admin_marker='PRIMARY'."})
+
+    def save(self, *args, **kwargs):
+        # 1. Normalize email before persistence
+        if self.email:
+            self.email = self.email.strip().lower()
+
+        # 2. Enforce primary_admin_marker semantic invariant
+        if self.primary_admin_marker is not None and self.primary_admin_marker != 'PRIMARY':
+            raise ValidationError({"primary_admin_marker": "primary_admin_marker must be NULL or 'PRIMARY'."})
+
+        # 3. Creation Lifecycle (self._state.adding == True)
+        if self._state.adding:
+            if self.role == Role.ADMIN and not self.admin_id:
+                if self.email == 'gauravagldeveloper28@gmail.com' and not User.objects.filter(admin_id='EUAD-GAURAV-099').exists():
+                    self.admin_id = 'EUAD-GAURAV-099'
+                else:
+                    from .services import AdminIdService
+                    self.admin_id = AdminIdService.generate_next_admin_id()
+            if self.role == Role.ADMIN and self.admin_id == 'EUAD-GAURAV-099' and self.primary_admin_marker is None:
+                if not User.objects.filter(primary_admin_marker='PRIMARY').exists():
+                    self.primary_admin_marker = 'PRIMARY'
+            if not self.display_name:
+                if self.email == 'gauravagldeveloper28@gmail.com':
+                    self.display_name = 'Gaurav Agarwal'
+                else:
+                    prefix = self.email.split('@')[0]
+                    cleaned = ''.join(c if c.isalpha() else ' ' for c in prefix).strip().title()
+                    self.display_name = cleaned or ("Administrator" if self.role == Role.ADMIN else "Student")
+
+        # 4. Update Immutability Lifecycle (not self._state.adding and self.pk)
+        if not self._state.adding and self.pk:
+            existing = User.objects.filter(pk=self.pk).values(
+                'id', 'email', 'admin_id', 'display_name', 'role', 'primary_admin_marker', 'is_active'
+            ).first()
+
+            if existing:
+                # Administrator-Scoped Immutability (Unconditional equality: OLD == NEW)
+                if existing['role'] == Role.ADMIN or self.role == Role.ADMIN:
+                    if self.email != existing['email']:
+                        raise PermissionDenied("Administrator email address is strictly immutable.")
+                    if self.admin_id != existing['admin_id']:
+                        raise PermissionDenied("Administrator Admin ID is strictly immutable.")
+                    if self.display_name != existing['display_name']:
+                        raise PermissionDenied("Administrator display name is strictly immutable.")
+                    if self.role != existing['role']:
+                        raise PermissionDenied("Administrator role cannot be altered.")
+                    if self.primary_admin_marker != existing['primary_admin_marker']:
+                        raise PermissionDenied("Primary Administrator marker cannot be altered.")
+
+                # Primary Admin Deactivation Protection
+                if existing['primary_admin_marker'] == 'PRIMARY' and not self.is_active:
+                    raise PermissionDenied("The Primary Administrator account cannot be deactivated.")
+
+                # Non-Admin Promotion Protection
+                if existing['role'] != Role.ADMIN and self.primary_admin_marker == 'PRIMARY':
+                    raise PermissionDenied("Non-administrator account cannot be designated as Primary Administrator.")
+
+        super().save(*args, **kwargs)
+
     @property
     def is_admin(self) -> bool:
-        return self.role == Role.ADMIN or self.is_staff or self.is_superuser
+        return self.role == Role.ADMIN
 
     @property
     def is_student(self) -> bool:
         return self.role == Role.STUDENT
+
+    @property
+    def is_primary_admin(self) -> bool:
+        return self.role == Role.ADMIN and self.primary_admin_marker == 'PRIMARY'
+
+    @property
+    def first_name(self) -> str:
+        parts = self.display_name.split()
+        return parts[0] if parts else "Administrator"
+
+    def delete(self, *args, **kwargs):
+        if self.is_primary_admin:
+            raise PermissionDenied("The Primary Administrator account is permanently protected and cannot be deleted.")
+        return super().delete(*args, **kwargs)
+
+
+class AdminSequence(UUIDModel, TimeStampedModel):
+    """
+    Transactional sequence tracker ensuring atomic, race-condition-free Admin ID generation.
+    """
+    last_sequence = models.PositiveIntegerField(default=2)
+
+    class Meta:
+        verbose_name = 'Admin Sequence'
+        verbose_name_plural = 'Admin Sequences'
+
+    def __str__(self):
+        return f"AdminSequence(last={self.last_sequence})"
 
 
 class StudentProfile(UUIDModel, TimeStampedModel):
