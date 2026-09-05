@@ -258,4 +258,30 @@
 - `test_proctoring_unit.py`, `integration.py`, `security.py`: AI vision telemetry, risk scoring, and alert tests.
 - `test_results_unit.py`, `integration.py`, `security.py`: Scoring math, report generation, and Excel formula injection protection.
 - `test_retention_unit.py`, `integration.py`, `security.py`: Data retention deadlines, legal holds, database scrubbing, HMAC tombstones, and DSAR encryption.
-- **Total Verified Tests**: **257 / 257 PASS**.
+- `test_invigilation_unit.py`: Phase 10 unit tests for proctor assignments, interventions, pause cumulative cap, duty sessions, bilateral chat, and idempotency (32 tests).
+- `test_invigilation_integration.py`: Phase 10 integration tests for proctor live roster, warnings, pause/resume, room scans, termination with Phase 8 finalization, and Channels WebSockets (13 tests).
+- `test_invigilation_security.py`: Phase 10 security tests for RBAC, unassigned proctor isolation, candidate chat scoping, and blank input validation (17 tests).
+- `test_invigilation_concurrency.py`: Phase 10 concurrency tests for duplicate pauses, simultaneous termination, race conditions, and assessment end boundary clamping (8 tests).
+- **Total Verified Tests**: **327 / 327 PASS** (257 Phase 1–9 regression tests + 70 Phase 10 invigilation tests).
+
+---
+
+## 13. Phase 10 Human Invigilation & Live Intervention Files
+
+### Backend (`backend/apps/invigilation/`)
+- `models.py`: `InterventionType`, `ProctorAssignment`, `ProctorIntervention` (immutable append-only audit ledger), `ProctorDutySession`, `ProctorChatMessage`.
+- `permissions.py`: `IsProctorOrAdmin`, `HasAssignedAssessmentAccess`, `HasAttemptInvigilationAccess`.
+- `services.py`: `ProctorRosterService`, `LiveInterventionService` (warning, pause, resume, room scan, terminate), `ProctorTriageQueueService`, `ProctorChatService`.
+- `serializers.py`: DRF serializers with student DSAR sanitization (masking internal notes and proctor IDs).
+- `views.py`: Proctor console REST APIs and student intervention endpoints.
+- `urls.py`: URL patterns for proctor endpoints and student intervention responses.
+- `consumers.py`: `InvigilationConsumer` (`ws/proctor/assessments/<id>/`) and `ProctorChatConsumer` (`ws/proctor/attempts/<id>/chat/`).
+- `admin.py`: Django admin site registration with immutable audit ledger protection.
+- `migrations/0001_initial.py`: Migration creating Phase 10 tables with zero ALTER operations on Phase 1–9 tables.
+
+### Frontend (`frontend/src/`)
+- `types/invigilation.ts`: TypeScript interfaces for assignments, interventions, triage candidates, and chat messages.
+- `api/invigilation.ts`: API service functions for live roster, warnings, pause/resume, room scans, termination, and chat.
+- `pages/admin/ProctorLiveConsolePage.tsx`: Real-time proctoring console featuring candidate triage by risk band, transient keyframe mosaic, intervention controls, and bilateral chat.
+- `pages/student/StudentTestRoomPage.tsx`: Integrated candidate test room featuring frosted pause overlay, warning acknowledgement modal, and room scan prompt.
+

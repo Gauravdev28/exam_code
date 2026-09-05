@@ -103,6 +103,81 @@ class AttemptTimerService:
             return True
         return False
 
+    @classmethod
+    def authorize_pause(
+        cls,
+        attempt: TestAttempt,
+        actor: Optional[User] = None
+    ) -> bool:
+        """
+        Server-authoritative validation determining if an attempt is eligible for pause.
+        Strictly requires IN_PROGRESS status and non-expired server timeline.
+        """
+        if attempt.status != AttemptStatus.IN_PROGRESS:
+            raise DRFValidationError({
+                "status": f"Cannot pause attempt in status {attempt.status}. Only IN_PROGRESS attempts may be paused."
+            })
+
+        # Check if already expired according to server authority
+        if cls.check_and_expire_attempt_if_needed(attempt):
+            raise DRFValidationError({"status": "Cannot pause an expired attempt."})
+
+        # Check assessment hard window
+        now = timezone.now()
+        if attempt.assessment.end_datetime and now >= attempt.assessment.end_datetime:
+            raise DRFValidationError({"schedule": "Cannot pause attempt: assessment end datetime has passed."})
+
+        return True
+
+    @classmethod
+    @transaction.atomic
+    def apply_authorized_pause(
+        cls,
+        attempt: TestAttempt,
+        pause_duration_seconds: int,
+        actor: Optional[User] = None,
+        request=None
+    ) -> TestAttempt:
+        """
+        Server-authoritative operation extending attempt.expires_at by the authorized
+        pause duration, strictly clamped to assessment.end_datetime as an absolute ceiling.
+        """
+        if attempt.status != AttemptStatus.IN_PROGRESS:
+            raise DRFValidationError({
+                "status": f"Cannot apply pause to attempt in status {attempt.status}."
+            })
+
+        if pause_duration_seconds <= 0:
+            raise DRFValidationError({
+                "duration": "Pause duration must be a positive integer in seconds."
+            })
+
+        if attempt.expires_at:
+            new_expiry = attempt.expires_at + timedelta(seconds=pause_duration_seconds)
+            # Hard invariant: effective expiry can never exceed assessment.end_datetime
+            if attempt.assessment.end_datetime and new_expiry > attempt.assessment.end_datetime:
+                new_expiry = attempt.assessment.end_datetime
+
+            attempt.expires_at = new_expiry
+            attempt.save(update_fields=['expires_at', 'updated_at'])
+
+            AuditService.log(
+                action="ATTEMPT_TIMER_PAUSE_APPLIED",
+                actor=actor or attempt.student,
+                target_type="TestAttempt",
+                target_id=str(attempt.id),
+                metadata={
+                    "assessment_id": str(attempt.assessment_id),
+                    "pause_duration_seconds": pause_duration_seconds,
+                    "new_expires_at": attempt.expires_at.isoformat(),
+                    "assessment_end": attempt.assessment.end_datetime.isoformat() if attempt.assessment.end_datetime else None
+                },
+                request=request
+            )
+
+        return attempt
+
+
 
 class AssessmentSnapshotService:
     """

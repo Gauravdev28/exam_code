@@ -17,6 +17,7 @@ import { StudentTestRoomPage } from './pages/student/StudentTestRoomPage';
 import { StudentResultPage } from './pages/student/StudentResultPage';
 import { AdminAssessmentResultsPage } from './pages/admin/AdminAssessmentResultsPage';
 import { AdminRetentionDashboardPage } from './pages/admin/AdminRetentionDashboardPage';
+import { ProctorLiveConsolePage } from './pages/admin/ProctorLiveConsolePage';
 import { StudentPrivacyPage } from './pages/student/StudentPrivacyPage';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { ForcePasswordChangeModal } from './components/auth/ForcePasswordChangeModal';
@@ -164,6 +165,16 @@ export const App: React.FC = () => {
                 element={
                   <ProtectedRoute requiredRole="ADMIN">
                     <AdminRetentionDashboardPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Proctor Live Console */}
+              <Route
+                path="/admin/proctor/console/:assessmentId"
+                element={
+                  <ProtectedRoute>
+                    <ProctorLiveConsolePage />
                   </ProtectedRoute>
                 }
               />

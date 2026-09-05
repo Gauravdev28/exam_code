@@ -29,6 +29,9 @@ urlpatterns = [
     
     # Data Retention, Privacy Compliance & Legal Holds endpoints
     path('api/v1/', include('apps.retention.urls')),
+
+    # Human Invigilation & Live Intervention endpoints
+    path('api/v1/', include('apps.invigilation.urls')),
     # path('api/v1/audit/', include('apps.audit.urls')),
 ]
 

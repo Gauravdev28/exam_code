@@ -139,6 +139,12 @@ class AuthoritativeScrubbingService:
             submissions_deleted = CodeSubmission.objects.filter(attempt=attempt).delete()[0]
             events_deleted = ProctoringEvent.objects.filter(session__attempt=attempt).delete()[0]
 
+            # Phase 10: Purge invigilation interventions and candidate chat messages (RET-01)
+            from apps.invigilation.services import InvigilationRetentionService
+            invig_counts = InvigilationRetentionService.purge_invigilation_records_for_attempt(attempt)
+            interventions_deleted = invig_counts.get('interventions_purged', 0)
+            chat_deleted = invig_counts.get('chat_purged', 0)
+
             # Collect evidence files to queue into FileCleanupQueue
             evidence_qs = ProctoringEvidence.objects.filter(session__attempt=attempt)
             evidence_count = 0
@@ -182,6 +188,8 @@ class AuthoritativeScrubbingService:
             'submissions_deleted': submissions_deleted,
             'events_deleted': events_deleted,
             'evidence_queued': evidence_count,
+            'interventions_deleted': interventions_deleted,
+            'chat_deleted': chat_deleted,
         }
 
     @classmethod

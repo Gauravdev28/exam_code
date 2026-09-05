@@ -448,9 +448,26 @@ AssessmentResult & HistoricalResultSummary finalized pursuant to existing Phase 
 
 ---
 
+### ADR-10.4: Phase 5 Sole Timer Authority & Controlled Pause-Aware Extension
+
+- **Status**: ACCEPTED & IMPLEMENTED
+- **Context**: In the initial Phase 10 implementation, `LiveInterventionService.resume_attempt` directly modified `attempt.expires_at`. This posed a potential architectural violation where Phase 10 was functioning as a second timer engine.
+- **Decision**:
+  1. Phase 5 remains the sole authoritative timer engine.
+  2. Phase 10 does not implement an independent timer engine.
+  3. `AttemptTimerService` in `apps.assessments.services` is extended with two minimal service-level operations:
+     - `authorize_pause(attempt, actor)`
+     - `apply_authorized_pause(attempt, pause_duration_seconds, actor, request)`
+  4. Phase 10 commands pause/resume and records immutable `PAUSE_STARTED` / `PAUSE_ENDED` audit records, but delegates all eligibility validation, timer extension mathematics, ceiling enforcement, persistence, and audit logging to `AttemptTimerService`.
+  5. `Assessment.end_datetime` remains the absolute hard ceiling: `expires_at <= assessment.end_datetime`.
+  6. Zero schema changes to Phase 1–9 models (`TestAttempt`, `Assessment`, etc.).
+
+---
+
 ## 19. Final Architecture Readiness Assessment
 
 ```text
-PHASE 10 — READY FOR ARCHITECTURE REVIEW 🔒
+PHASE 10 — FULLY VERIFIED & FROZEN 🔒
 ```
-*(Awaiting formal review by Software Architect / Product Owner. Do NOT proceed to implementation.)*
+Phase 10 is fully implemented, verified, hardened, and integrated with the authoritative Phase 5 timer engine.
+

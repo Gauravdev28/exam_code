@@ -142,6 +142,37 @@ class DsarExportService:
                 'finalized_at': res.finalized_at.isoformat() if res.finalized_at else None,
             }
 
+        # Phase 10: Candidate-visible invigilation events (RET-02)
+        # Strictly redacts internal_notes and proctor identities pursuant to privacy allowlist
+        candidate_interventions = []
+        try:
+            from apps.invigilation.models import ProctorIntervention
+            for interv in ProctorIntervention.objects.filter(attempt=attempt).order_by('issued_at'):
+                candidate_interventions.append({
+                    'intervention_id': str(interv.id),
+                    'event_type': interv.event_type,
+                    'reason_code': interv.reason_code,
+                    'reason_text': interv.reason_text,
+                    'issued_at': interv.issued_at.isoformat() if interv.issued_at else None,
+                })
+        except Exception as e:
+            logger.warning(f"Could not extract invigilation interventions for DSAR payload: {e}")
+
+        # Phase 10: Ephemeral chat messages between candidate and proctor (RET-02)
+        # Excludes internal staff user identifiers
+        chat_messages = []
+        try:
+            from apps.invigilation.models import ProctorChatMessage
+            for msg in ProctorChatMessage.objects.filter(attempt=attempt).order_by('sent_at'):
+                chat_messages.append({
+                    'message_id': str(msg.id),
+                    'sender_type': 'CANDIDATE' if msg.sender_id == student.id else 'PROCTOR',
+                    'message_text': msg.message_text,
+                    'sent_at': msg.sent_at.isoformat() if msg.sent_at else None,
+                })
+        except Exception as e:
+            logger.warning(f"Could not extract chat messages for DSAR payload: {e}")
+
         return {
             'student_profile': {
                 'student_id': str(student.id),
@@ -164,6 +195,8 @@ class DsarExportService:
             'academic_result': result_data,
             'student_answers': answers_data,
             'code_submissions': submissions_data,
+            'candidate_interventions': candidate_interventions,
+            'chat_messages': chat_messages,
         }
 
     @classmethod

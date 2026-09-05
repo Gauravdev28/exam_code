@@ -5,6 +5,7 @@ import logging
 import math
 import re
 import time
+import requests
 from decimal import Decimal
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -227,301 +228,91 @@ class Judge0Adapter:
         max_stdout_bytes: int = 65536
     ) -> Dict[str, Any]:
         """
-        Executes code against sandbox runtime.
-        Includes full built-in deterministic sandbox simulation engine for hermetic local execution.
+        Executes code strictly within the external isolated Judge0 CE sandbox via HTTP API.
+        The Django/Celery application process NEVER executes candidate code.
+        If the external sandbox is unavailable or returns an infrastructure failure,
+        execution fails closed with an internal error and NEVER falls back to host execution.
         """
-        lang_upper = language.upper()
-        cpu_sec = cpu_time_limit_ms / 1000.0
+        judge0_url = getattr(settings, 'JUDGE0_URL', 'http://127.0.0.1:2358').rstrip('/')
+        api_key = getattr(settings, 'JUDGE0_API_KEY', '')
+        timeout = getattr(settings, 'JUDGE0_TIMEOUT_SECONDS', 10)
+        lang_id = cls.get_language_id(language)
 
-        # Simulate execution safely in local development / test mode
-        return cls._local_sandbox_execute(
-            source_code=source_code,
-            language=lang_upper,
-            stdin_data=stdin_data,
-            cpu_sec=cpu_sec,
-            memory_limit_mb=memory_limit_mb,
-            max_stdout_bytes=max_stdout_bytes
-        )
+        payload = {
+            "source_code": source_code,
+            "language_id": lang_id,
+            "stdin": stdin_data or "",
+            "expected_output": expected_output or "",
+            "cpu_time_limit": max(0.1, cpu_time_limit_ms / 1000.0),
+            "memory_limit": memory_limit_mb * 1024,
+            "max_file_size": max_stdout_bytes,
+        }
 
-    @classmethod
-    def _local_sandbox_execute(
-        cls,
-        source_code: str,
-        language: str,
-        stdin_data: str,
-        cpu_sec: float,
-        memory_limit_mb: int,
-        max_stdout_bytes: int
-    ) -> Dict[str, Any]:
-        """
-        Hermetic sandbox evaluation engine executing with strict timeout, memory limit, and output ceiling.
-        """
-        import sys
-        import io
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        if api_key:
+            headers["X-Auth-Token"] = api_key
+            headers["X-RapidAPI-Key"] = api_key
 
-        # 1. Compilation checks for C++ / Java
-        if language == 'CPP':
-            # Check for basic compilation errors
-            if "syntax_error" in source_code or "#include <nonexistent>" in source_code:
-                return {
-                    "status_id": 6,  # Compilation Error
-                    "status_description": "Compilation Error",
-                    "compile_output": "error: nonexistent header or syntax error",
-                    "stdout": None,
-                    "stderr": None,
-                    "time": 0.05,
-                    "memory": 12000
-                }
-            if "while(1){}" in source_code or "while(true)" in source_code and "break" not in source_code:
-                return {
-                    "status_id": 5,  # Time Limit Exceeded
-                    "status_description": "Time Limit Exceeded",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": None,
-                    "time": cpu_sec + 0.1,
-                    "memory": 15000
-                }
+        endpoint = f"{judge0_url}/submissions/?base64_encoded=false&wait=true"
 
-        if language == 'PYTHON':
-            # Security sandbox simulation probes
-            if "while True: pass" in source_code or "while(1):" in source_code or "2**1000000" in source_code:
-                return {
-                    "status_id": 5,  # Time Limit Exceeded
-                    "status_description": "Time Limit Exceeded",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": "SIGXCPU: CPU time limit exceeded (cpu.max limit reached)",
-                    "time": cpu_sec + 0.05,
-                    "memory": 12000
-                }
-            if "os.fork()" in source_code or "fork bomb" in source_code.lower():
-                return {
-                    "status_id": 11,  # Runtime Error (NZEC / EAGAIN)
-                    "status_description": "Runtime Error (EAGAIN: process limit reached)",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": "BlockingIOError: [Errno 11] Resource temporarily unavailable (pids.max reached)",
-                    "time": 0.04,
-                    "memory": 14000
-                }
-            if "threading.Thread" in source_code or "thread bomb" in source_code.lower():
-                return {
-                    "status_id": 11,  # Runtime Error (Thread limit)
-                    "status_description": "Runtime Error (Thread limit reached)",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": "RuntimeError: can't start new thread (pids.max ceiling reached)",
-                    "time": 0.04,
-                    "memory": 14000
-                }
-            if "1024 * 1024 * 500" in source_code or "memory_bomb" in source_code.lower():
-                return {
-                    "status_id": 12,  # Memory Limit Exceeded
-                    "status_description": "Memory Limit Exceeded",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": "Out of memory: cgroup memory.max ceiling exceeded (swap=0)",
-                    "time": 0.08,
-                    "memory": memory_limit_mb * 1024 + 50000
-                }
-            if "sys.stdout.write" in source_code and "10000" in source_code:
-                return {
-                    "status_id": 13,  # Output Limit Exceeded
-                    "status_description": "Output Limit Exceeded",
-                    "compile_output": None,
-                    "stdout": "A" * max_stdout_bytes,
-                    "stderr": "Output limit exceeded (max_stdout_bytes=65536)",
-                    "time": 0.05,
-                    "memory": 12000
-                }
-            if "8.8.8.8" in source_code:
-                return {
-                    "status_id": 11,
-                    "status_description": "Runtime Error (ENETUNREACH)",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": "OSError: [Errno 101] Network is unreachable (CLONE_NEWNET: 8.8.8.8)",
-                    "time": 0.02,
-                    "memory": 11000
-                }
-            if "db" in source_code and "3306" in source_code:
-                return {
-                    "status_id": 11,
-                    "status_description": "Runtime Error (ENETUNREACH)",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": "OSError: [Errno 101] Network is unreachable (CLONE_NEWNET: db:3306)",
-                    "time": 0.02,
-                    "memory": 11000
-                }
-            if "redis" in source_code and "6379" in source_code:
-                return {
-                    "status_id": 11,
-                    "status_description": "Runtime Error (ENETUNREACH)",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": "OSError: [Errno 101] Network is unreachable (CLONE_NEWNET: redis:6379)",
-                    "time": 0.02,
-                    "memory": 11000
-                }
-            if "backend" in source_code or "8000" in source_code:
-                return {
-                    "status_id": 11,
-                    "status_description": "Runtime Error (ENETUNREACH)",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": "urllib.error.URLError: <urlopen error [Errno 101] Network is unreachable (CLONE_NEWNET)>",
-                    "time": 0.02,
-                    "memory": 11000
-                }
-            if "169.254.169.254" in source_code:
-                return {
-                    "status_id": 11,
-                    "status_description": "Runtime Error (ENETUNREACH)",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": "urllib.error.URLError: <urlopen error [Errno 101] Network is unreachable (CLONE_NEWNET)>",
-                    "time": 0.02,
-                    "memory": 11000
-                }
-            if "setuid" in source_code or ("shadow" in source_code and "'w'" in source_code):
-                return {
-                    "status_id": 11,
-                    "status_description": "Runtime Error (EPERM)",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": "PermissionError: [Errno 1] Operation not permitted (dropped CAP_SETUID / ro jail)",
-                    "time": 0.02,
-                    "memory": 11000
-                }
-            if "/proc" in source_code:
-                return {
-                    "status_id": 11,
-                    "status_description": "Runtime Error (EACCES)",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": "PermissionError: [Errno 13] Permission denied: '/proc/1/status' (PID namespace mask)",
-                    "time": 0.02,
-                    "memory": 11000
-                }
-            if "/sys" in source_code:
-                return {
-                    "status_id": 11,
-                    "status_description": "Runtime Error (ENOENT)",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": "FileNotFoundError: [Errno 2] No such file or directory: '/sys/devices/system/cpu/cpu0/cpufreq'",
-                    "time": 0.02,
-                    "memory": 11000
-                }
-            if "docker.sock" in source_code:
-                return {
-                    "status_id": 11,
-                    "status_description": "Runtime Error (ENOENT)",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": "FileNotFoundError: [Errno 2] No such file or directory: '/var/run/docker.sock'",
-                    "time": 0.02,
-                    "memory": 11000
-                }
-            if "/etc/shadow" in source_code:
-                return {
-                    "status_id": 11,
-                    "status_description": "Runtime Error (EACCES)",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": "PermissionError: [Errno 13] Permission denied: '/etc/shadow' (chroot ro jail)",
-                    "time": 0.02,
-                    "memory": 11000
-                }
-            if "syscall" in source_code or "seccomp" in source_code:
-                return {
-                    "status_id": 11,
-                    "status_description": "Runtime Error (SIGSYS)",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": "Process terminated with signal SIGSYS (Blocked by Seccomp-BPF whitelist)",
-                    "time": 0.02,
-                    "memory": 11000
-                }
-            if "socket" in source_code or "urllib" in source_code:
-                return {
-                    "status_id": 11,
-                    "status_description": "Runtime Error (Network Unreachable)",
-                    "compile_output": None,
-                    "stdout": None,
-                    "stderr": "OSError: [Errno 101] Network is unreachable (CLONE_NEWNET)",
-                    "time": 0.02,
-                    "memory": 11000
-                }
+        try:
+            response = requests.post(endpoint, json=payload, headers=headers, timeout=timeout)
+            if response.status_code not in (200, 201):
+                logger.error(f"Judge0 external sandbox HTTP error {response.status_code}: {response.text}")
+                return cls._fail_closed_response(
+                    f"External sandbox returned error HTTP {response.status_code}"
+                )
 
-            # Check Python syntax
+            data = response.json()
+            status_obj = data.get('status') or {}
+            status_id = status_obj.get('id', 13)
+            status_desc = status_obj.get('description', 'Internal Error')
+
+            raw_time = data.get('time')
             try:
-                compile(source_code, '<string>', 'exec')
-            except SyntaxError as e:
-                return {
-                    "status_id": 6,  # Compilation Error
-                    "status_description": "Compilation Error",
-                    "compile_output": f"SyntaxError: {str(e)}",
-                    "stdout": None,
-                    "stderr": None,
-                    "time": 0.01,
-                    "memory": 10000
-                }
+                exec_time_sec = float(raw_time) if raw_time is not None else 0.0
+            except (ValueError, TypeError):
+                exec_time_sec = 0.0
 
-            # Execute Python code in controlled environment
-            old_stdin = sys.stdin
-            old_stdout = sys.stdout
-            old_stderr = sys.stderr
-            sys.stdin = io.StringIO(stdin_data or "")
-            sys.stdout = io.StringIO()
-            sys.stderr = io.StringIO()
-
-            exec_globals = {"__builtins__": __builtins__}
-            start_t = time.perf_counter()
-            status_id = 3  # Accepted by default
-            status_desc = "Accepted"
-            compile_err = None
-
+            raw_mem = data.get('memory')
             try:
-                exec(source_code, exec_globals)
-                out_str = sys.stdout.getvalue()
-                err_str = sys.stderr.getvalue()
-                if len(out_str.encode('utf-8')) > max_stdout_bytes:
-                    status_id = 13
-                    status_desc = "Output Limit Exceeded"
-                    out_str = out_str[:max_stdout_bytes]
-            except Exception as e:
-                status_id = 11  # Runtime Error
-                status_desc = f"Runtime Error ({type(e).__name__})"
-                out_str = sys.stdout.getvalue()
-                err_str = str(e)
-            finally:
-                sys.stdin = old_stdin
-                sys.stdout = old_stdout
-                sys.stderr = old_stderr
+                mem_kb = int(raw_mem) if raw_mem is not None else 0
+            except (ValueError, TypeError):
+                mem_kb = 0
 
-            dur = time.perf_counter() - start_t
             return {
                 "status_id": status_id,
                 "status_description": status_desc,
-                "compile_output": compile_err,
-                "stdout": out_str,
-                "stderr": err_str if err_str else None,
-                "time": max(0.01, round(dur, 3)),
-                "memory": 12500
+                "compile_output": data.get('compile_output'),
+                "stdout": data.get('stdout'),
+                "stderr": data.get('stderr'),
+                "time": max(0.01, round(exec_time_sec, 3)),
+                "memory": mem_kb
             }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Judge0 external sandbox connection error: {e}")
+            return cls._fail_closed_response(f"Sandbox unavailable: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error interfacing with external sandbox: {e}")
+            return cls._fail_closed_response(f"Execution interface error: {e}")
 
-        # Generic default response for mock
+    @classmethod
+    def _fail_closed_response(cls, reason: str) -> Dict[str, Any]:
+        """
+        Controlled fail-closed execution error response.
+        NEVER falls back to host execution or in-process execution.
+        """
         return {
-            "status_id": 3,
-            "status_description": "Accepted",
+            "status_id": 13,  # Internal Error in Judge0 / Fail-Closed
+            "status_description": "Sandbox Unavailable",
             "compile_output": None,
-            "stdout": "5\n" if "5" in str(stdin_data) else "Output\n",
-            "stderr": None,
-            "time": 0.05,
-            "memory": 15000
+            "stdout": None,
+            "stderr": f"FAIL_CLOSED: {reason}",
+            "time": 0.0,
+            "memory": 0
         }
 
 
@@ -765,7 +556,24 @@ class CodeSubmissionService:
 
             tc_verdict = TestCaseVerdict.PASSED
 
-            if status_id == 6:  # Compilation Error
+            if res.get('status_description') == 'Sandbox Unavailable' or (stderr_out and 'FAIL_CLOSED' in stderr_out):
+                tc_verdict = TestCaseVerdict.RUNTIME_ERROR
+                overall_verdict = CodeVerdict.SYSTEM_ERROR
+                tc_results_data.append({
+                    "test_case_index": tc['index'],
+                    "is_hidden": tc['is_hidden'],
+                    "verdict": tc_verdict,
+                    "points_awarded": Decimal('0.00'),
+                    "max_points": Decimal(str(tc['points'])),
+                    "execution_time_ms": exec_time_ms,
+                    "memory_used_kb": mem_kb,
+                    "public_input": tc['input'] if not tc['is_hidden'] else None,
+                    "expected_output": tc['expected_output'] if not tc['is_hidden'] else None,
+                    "actual_output": None,
+                    "error_message": stderr_out if not tc['is_hidden'] else "Sandbox execution failure",
+                })
+                break
+            elif status_id == 6:  # Compilation Error
                 overall_verdict = CodeVerdict.COMPILATION_ERROR
                 compilation_error_log = compile_out or "Compilation failed."
                 tc_verdict = TestCaseVerdict.FAILED
@@ -847,7 +655,10 @@ class CodeSubmissionService:
                 )
 
             # Update CodeSubmission
-            submission.status = SubmissionStatus.COMPLETED
+            if overall_verdict == CodeVerdict.SYSTEM_ERROR:
+                submission.status = SubmissionStatus.FAILED
+            else:
+                submission.status = SubmissionStatus.COMPLETED
             submission.verdict = overall_verdict
             submission.total_test_cases = len(test_cases_to_run)
             submission.passed_test_cases = passed_count
