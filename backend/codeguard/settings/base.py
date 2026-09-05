@@ -203,9 +203,28 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 
-# Judge0 Execution Engine Configuration
-JUDGE0_URL = os.getenv('JUDGE0_URL', 'http://127.0.0.1:2358')
-JUDGE0_API_KEY = os.getenv('JUDGE0_API_KEY', '')
+# Judge0 Execution Engine Configuration (Canonical: JUDGE0_URL, JUDGE0_API_KEY)
+_judge0_url_canonical = os.getenv('JUDGE0_URL')
+_judge0_url_legacy = os.getenv('JUDGE0_API_URL')
+
+def _norm_judge0_url(u: str) -> str:
+    return u.rstrip('/').replace('://localhost:', '://127.0.0.1:')
+
+if _judge0_url_canonical and _judge0_url_legacy and _norm_judge0_url(_judge0_url_canonical) != _norm_judge0_url(_judge0_url_legacy):
+    raise RuntimeError(
+        f"Conflicting Judge0 URL configuration: JUDGE0_URL='{_judge0_url_canonical}' vs "
+        f"JUDGE0_API_URL='{_judge0_url_legacy}'. Please configure only the canonical JUDGE0_URL."
+    )
+JUDGE0_URL = _judge0_url_canonical or _judge0_url_legacy or 'http://127.0.0.1:2358'
+
+_judge0_key_canonical = os.getenv('JUDGE0_API_KEY')
+_judge0_key_legacy = os.getenv('JUDGE0_AUTH_TOKEN')
+if _judge0_key_canonical and _judge0_key_legacy and _judge0_key_canonical != _judge0_key_legacy:
+    raise RuntimeError(
+        f"Conflicting Judge0 API Key configuration: JUDGE0_API_KEY vs JUDGE0_AUTH_TOKEN. "
+        f"Please configure only the canonical JUDGE0_API_KEY."
+    )
+JUDGE0_API_KEY = _judge0_key_canonical if _judge0_key_canonical is not None else (_judge0_key_legacy or '')
 JUDGE0_CALLBACK_URL = os.getenv('JUDGE0_CALLBACK_URL', '')
 JUDGE0_POLL_INTERVAL_SEC = float(os.getenv('JUDGE0_POLL_INTERVAL_SEC', '0.5'))
 JUDGE0_MAX_POLL_TIMEOUT_SEC = int(os.getenv('JUDGE0_MAX_POLL_TIMEOUT_SEC', '30'))

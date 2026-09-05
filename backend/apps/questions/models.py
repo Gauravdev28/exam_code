@@ -202,6 +202,7 @@ class CodingQuestionConfig(UUIDModel, TimeStampedModel):
     """
     Coding problem configuration (limits, allowed languages, problem constraints).
     Belongs 1:1 to a specific QuestionVersion.
+    Single authoritative source of truth for coding questions.
     """
     question_version = models.OneToOneField(
         QuestionVersion,
@@ -218,14 +219,97 @@ class CodingQuestionConfig(UUIDModel, TimeStampedModel):
     )
     time_limit_ms = models.PositiveIntegerField(default=2000, help_text="Execution time limit in milliseconds")
     memory_limit_mb = models.PositiveIntegerField(default=256, help_text="Memory limit in megabytes")
+    starter_codes = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Mapping of language key to starter code e.g. {'PYTHON': '...'}"
+    )
+    examples = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of example cases: [{'input': '...', 'output': '...', 'explanation': '...'}]"
+    )
+    reference_solutions = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Admin reference solutions: {language: code}"
+    )
+    reference_solution_language = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text="Primary verified reference solution language"
+    )
+    reference_solution_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="SHA-256 hash of verified reference solution source and language"
+    )
+    reference_solution_verified = models.BooleanField(
+        default=False,
+        help_text="Whether the reference solution has been verified against all test cases"
+    )
+    reference_solution_verified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp when the reference solution was verified"
+    )
 
     def __str__(self):
         return f"CodingConfig for {self.question_version}"
+
+    @staticmethod
+    def compute_reference_hash(code: str, language: str) -> str:
+        import hashlib
+        if not code or not language:
+            return ""
+        norm_code = str(code).replace('\r\n', '\n').strip()
+        norm_lang = str(language).strip().upper()
+        return hashlib.sha256(f"{norm_lang}:{norm_code}".encode('utf-8')).hexdigest()
+
+    def get_current_reference_hash(self) -> str:
+        lang = self.reference_solution_language
+        if not lang and self.reference_solutions and isinstance(self.reference_solutions, dict):
+            lang = next(iter(self.reference_solutions.keys()))
+        code = self.reference_solutions.get(lang, "") if isinstance(self.reference_solutions, dict) else ""
+        return self.compute_reference_hash(code, lang)
+
+    def is_reference_solution_current(self) -> bool:
+        if not self.reference_solution_verified or not self.reference_solution_hash:
+            return False
+        return self.get_current_reference_hash() == self.reference_solution_hash
+
+    def mark_reference_solution_verified(self, language: str, code: str):
+        from django.utils import timezone
+        self.reference_solution_language = str(language).strip().upper()
+        self.reference_solution_hash = self.compute_reference_hash(code, language)
+        self.reference_solution_verified = True
+        self.reference_solution_verified_at = timezone.now()
 
     def save(self, *args, **kwargs):
         if not self._state.adding and self.pk:
             if self.question_version.status in [VersionStatus.PUBLISHED, VersionStatus.ARCHIVED]:
                 raise PermissionDenied("Coding configuration belonging to a published/archived version is immutable.")
+            
+            # Detect reference solution source or language changes to invalidate verification
+            old = CodingQuestionConfig.objects.filter(pk=self.pk).values(
+                'reference_solutions', 'reference_solution_language', 'reference_solution_hash', 'reference_solution_verified'
+            ).first()
+            if old and old['reference_solution_verified']:
+                old_ref_solutions = old['reference_solutions'] or {}
+                old_ref_lang = old['reference_solution_language'] or ""
+                curr_code = self.reference_solutions.get(self.reference_solution_language, "") if isinstance(self.reference_solutions, dict) else ""
+                old_code = old_ref_solutions.get(old_ref_lang, "") if isinstance(old_ref_solutions, dict) else ""
+
+                curr_hash = self.compute_reference_hash(curr_code, self.reference_solution_language)
+                if curr_hash != old['reference_solution_hash'] or self.reference_solution_language != old_ref_lang:
+                    # Invalidate reference solution verification
+                    self.reference_solution_verified = False
+                    self.reference_solution_verified_at = None
+                    # Invalidate all associated verified test cases
+                    self.test_cases.filter(is_verified=True).update(is_verified=False)
+
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
@@ -245,6 +329,12 @@ class TestCase(UUIDModel, TimeStampedModel):
         on_delete=models.CASCADE,
         related_name='test_cases'
     )
+    name = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text="Test case name or label"
+    )
     input_data = models.TextField()
     expected_output = models.TextField()
     points = models.PositiveIntegerField(
@@ -255,6 +345,10 @@ class TestCase(UUIDModel, TimeStampedModel):
         default=False,
         help_text="Hidden evaluation test case (never leaked to student-facing endpoints)"
     )
+    is_verified = models.BooleanField(
+        default=False,
+        help_text="Whether the expected output has been explicitly verified by an administrator"
+    )
     execution_order = models.PositiveIntegerField(default=1)
     time_limit_override_ms = models.PositiveIntegerField(null=True, blank=True)
     memory_limit_override_mb = models.PositiveIntegerField(null=True, blank=True)
@@ -263,12 +357,19 @@ class TestCase(UUIDModel, TimeStampedModel):
         ordering = ['execution_order', 'created_at']
 
     def __str__(self):
-        return f"TestCase {self.id} (Hidden: {self.is_hidden}, Points: {self.points})"
+        return f"TestCase {self.id} (Hidden: {self.is_hidden}, Points: {self.points}, Verified: {self.is_verified})"
 
     def save(self, *args, **kwargs):
         if not self._state.adding and self.pk:
             if self.coding_config.question_version.status in [VersionStatus.PUBLISHED, VersionStatus.ARCHIVED]:
                 raise PermissionDenied("Test cases belonging to a published/archived version are immutable.")
+            
+            # Invalidate verification if input_data or expected_output changes
+            old = TestCase.objects.filter(pk=self.pk).values('input_data', 'expected_output', 'is_verified').first()
+            if old and old['is_verified']:
+                if old['input_data'] != self.input_data or old['expected_output'] != self.expected_output:
+                    self.is_verified = False
+
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):

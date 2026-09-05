@@ -18,6 +18,8 @@ class CodeSubmitRequestSerializer(serializers.Serializer):
 class StudentTestCaseResultSerializer(serializers.ModelSerializer):
     index = serializers.IntegerField(source='test_case_index')
     input = serializers.CharField(source='public_input', allow_null=True)
+    points_awarded = serializers.SerializerMethodField()
+    max_points = serializers.SerializerMethodField()
 
     class Meta:
         model = CodeTestCaseResult
@@ -34,6 +36,16 @@ class StudentTestCaseResultSerializer(serializers.ModelSerializer):
             'actual_output',
             'error_message',
         ]
+
+    def get_points_awarded(self, obj):
+        if obj.is_hidden:
+            return None
+        return obj.points_awarded
+
+    def get_max_points(self, obj):
+        if obj.is_hidden:
+            return None
+        return obj.max_points
 
 
 class StudentCodeSubmissionSerializer(serializers.ModelSerializer):

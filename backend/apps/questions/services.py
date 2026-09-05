@@ -189,6 +189,51 @@ class QuestionValidationService:
                 f"Sum of test case points ({total_tc_points}) must equal total question points ({version.points})."
             )
 
+        # Check for empty expected outputs
+        for tc in test_cases:
+            if tc.expected_output is None or not str(tc.expected_output).strip():
+                errors['expected_outputs'] = f"Test case at execution order {tc.execution_order} has empty expected output."
+                break
+
+        # Duplicate inputs check using canonical normalization
+        from apps.evaluator.services import OutputComparisonService
+        seen_inputs = {}
+        for tc in test_cases:
+            norm_in = OutputComparisonService.normalize_text(tc.input_data)
+            if norm_in in seen_inputs:
+                errors['duplicate_inputs'] = "Duplicate test case input detected."
+                break
+            seen_inputs[norm_in] = tc.id
+
+        # Backward compatibility handling at the publish boundary for legacy test data
+        is_legacy = (
+            not config.reference_solutions
+            and not config.starter_codes
+            and not config.examples
+            and not any(tc.is_verified for tc in test_cases)
+            and not any(tc.name for tc in test_cases)
+        )
+
+        if not is_legacy:
+            # Check for unverified test cases
+            unverified = [tc for tc in test_cases if not tc.is_verified]
+            if unverified:
+                errors['expected_output_verification'] = (
+                    f"{len(unverified)} test case(s) require explicit expected output verification before publication."
+                )
+
+            # Model A: If reference solution is configured, it must be verified and not stale
+            has_ref = bool(config.reference_solutions and isinstance(config.reference_solutions, dict) and any(str(v).strip() for v in config.reference_solutions.values()))
+            if has_ref:
+                if not config.reference_solution_verified:
+                    errors['reference_solution'] = (
+                        "Reference solution must be verified against all test cases before publication."
+                    )
+                elif not config.is_reference_solution_current():
+                    errors['reference_solution'] = (
+                        "Reference solution verification is stale; source or language changed. Re-execution and reverification required."
+                    )
+
     @staticmethod
     def _validate_sql(version: QuestionVersion, errors: Dict[str, Any]) -> None:
         if not hasattr(version, 'sql_config') or version.sql_config is None:
@@ -207,6 +252,192 @@ class QuestionValidationService:
 
         if config.allowed_dialect != "MYSQL":
             errors['allowed_dialect'] = "Currently only 'MYSQL' dialect is supported."
+
+
+class CodingQuestionValidationService:
+    """
+    Central authoritative Question Health & Pre-Publish Validation service.
+    Evaluates exactly 12 deterministic checks across authoring models A and B.
+    """
+    @classmethod
+    def get_health_status(cls, version: QuestionVersion) -> Dict[str, Any]:
+        from apps.evaluator.services import Judge0Adapter, OutputComparisonService
+
+        checks = []
+        errors = []
+
+        if version.question_type != QuestionType.CODING:
+            return {
+                "is_ready": False,
+                "status": version.status,
+                "passed_checks": 0,
+                "total_checks": 12,
+                "checks": [],
+                "errors": ["Question is not a CODING question."]
+            }
+
+        config = getattr(version, 'coding_config', None)
+        if not config:
+            return {
+                "is_ready": False,
+                "status": "DRAFT_INCOMPLETE",
+                "passed_checks": 0,
+                "total_checks": 12,
+                "checks": [],
+                "errors": ["Missing CodingQuestionConfig."]
+            }
+
+        test_cases = list(config.test_cases.all())
+
+        # 1. Problem Statement
+        p_passed = bool(version.title and version.title.strip() and (config.problem_statement and config.problem_statement.strip() or version.description and version.description.strip()))
+        p_msg = "Problem statement is complete" if p_passed else "Title or problem statement cannot be empty"
+        checks.append({"key": "problem_statement", "display_name": "Problem Statement", "passed": p_passed, "message": p_msg})
+        if not p_passed:
+            errors.append(p_msg)
+
+        # 2. Examples
+        ex_list = config.examples if isinstance(config.examples, list) else []
+        ex_valid = len(ex_list) >= 1 and all(
+            isinstance(ex, dict) and str(ex.get('input', '')).strip() != "" and str(ex.get('output', '')).strip() != ""
+            for ex in ex_list
+        )
+        ex_msg = f"{len(ex_list)} example(s) configured" if ex_valid else "At least one example with non-empty input and output is required"
+        checks.append({"key": "examples", "display_name": "Examples", "passed": ex_valid, "message": ex_msg})
+        if not ex_valid:
+            errors.append(ex_msg)
+
+        # 3. Languages
+        allowed_langs = config.allowed_languages or []
+        valid_langs = [c[0] for c in CodingLanguage.choices]
+        lang_valid = len(allowed_langs) >= 1 and all(l in valid_langs for l in allowed_langs)
+        lang_msg = f"{len(allowed_langs)} language(s) enabled" if lang_valid else "At least one valid supported language required"
+        checks.append({"key": "languages", "display_name": "Languages", "passed": lang_valid, "message": lang_msg})
+        if not lang_valid:
+            errors.append(lang_msg)
+
+        # 4. Starter Code
+        sc_dict = config.starter_codes if isinstance(config.starter_codes, dict) else {}
+        sc_valid = lang_valid and all(str(sc_dict.get(l, '')).strip() != "" for l in allowed_langs)
+        sc_msg = "Starter code provided for all enabled languages" if sc_valid else "Starter code missing for one or more enabled languages"
+        checks.append({"key": "starter_code", "display_name": "Starter Code", "passed": sc_valid, "message": sc_msg})
+        if not sc_valid:
+            errors.append(sc_msg)
+
+        # 5. Sample Tests
+        sample_tcs = [tc for tc in test_cases if not tc.is_hidden]
+        s_valid = len(sample_tcs) >= 1 and all(tc.expected_output and tc.expected_output.strip() != "" for tc in sample_tcs)
+        s_msg = f"{len(sample_tcs)} sample test(s) configured" if s_valid else "At least one sample test with expected output required"
+        checks.append({"key": "sample_tests", "display_name": "Sample Tests", "passed": s_valid, "message": s_msg})
+        if not s_valid:
+            errors.append(s_msg)
+
+        # 6. Hidden Tests
+        hidden_tcs = [tc for tc in test_cases if tc.is_hidden]
+        h_valid = len(hidden_tcs) >= 1 and all(tc.expected_output and tc.expected_output.strip() != "" and tc.points >= 1 for tc in hidden_tcs)
+        h_msg = f"{len(hidden_tcs)} hidden test(s) configured" if h_valid else "At least one hidden test with expected output and positive points required"
+        checks.append({"key": "hidden_tests", "display_name": "Hidden Tests", "passed": h_valid, "message": h_msg})
+        if not h_valid:
+            errors.append(h_msg)
+
+        # 7. Expected Output Verification (Check #7)
+        unverified_count = len([tc for tc in test_cases if not tc.is_verified])
+        has_ref = bool(config.reference_solutions and isinstance(config.reference_solutions, dict) and any(str(v).strip() for v in config.reference_solutions.values()))
+
+        if has_ref:
+            # Model A
+            if not config.reference_solution_verified:
+                v_passed = False
+                if config.reference_solution_hash:
+                    v_msg = "Reference solution verification is stale; re-execution and review required"
+                else:
+                    v_msg = "Reference solution not verified against test cases"
+            elif not config.is_reference_solution_current():
+                v_passed = False
+                v_msg = "Reference solution verification is stale; re-execution and review required"
+            elif unverified_count > 0:
+                v_passed = False
+                v_msg = f"{unverified_count} test case(s) require verification"
+            else:
+                v_passed = True
+                v_msg = "Reference solution verified"
+        else:
+            # Model B
+            if test_cases and unverified_count == 0:
+                v_passed = True
+                v_msg = "All expected outputs manually verified"
+            else:
+                v_passed = False
+                v_msg = f"{unverified_count} test case(s) require manual verification" if test_cases else "No test cases to verify"
+
+        checks.append({"key": "expected_output_verification", "display_name": "Expected Output Verification", "passed": v_passed, "message": v_msg})
+        if not v_passed:
+            errors.append(v_msg)
+
+        # 8. Expected Outputs
+        eo_valid = len(test_cases) > 0 and all(tc.expected_output and str(tc.expected_output).strip() != "" for tc in test_cases)
+        eo_msg = "All test cases have non-empty expected outputs" if eo_valid else "One or more test cases missing expected output"
+        checks.append({"key": "expected_outputs", "display_name": "Expected Outputs", "passed": eo_valid, "message": eo_msg})
+        if not eo_valid:
+            errors.append(eo_msg)
+
+        # 9. Judge0 Execution (Infrastructure Health)
+        j_avail = Judge0Adapter.check_health()
+        j_msg = "Judge0 execution sandbox operational" if j_avail else "Judge0 execution sandbox unavailable"
+        checks.append({"key": "judge0_execution", "display_name": "Judge0 Execution", "passed": j_avail, "message": j_msg})
+        if not j_avail:
+            errors.append(j_msg)
+
+        # 10. Scoring Configuration
+        sc_pts_valid = len(test_cases) > 0 and all(tc.points >= 1 for tc in test_cases) and config.time_limit_ms >= 100 and config.memory_limit_mb >= 16
+        sc_pts_msg = "Scoring configuration valid" if sc_pts_valid else "Invalid scoring points or resource limits"
+        checks.append({"key": "scoring_configuration", "display_name": "Scoring Configuration", "passed": sc_pts_valid, "message": sc_pts_msg})
+        if not sc_pts_valid:
+            errors.append(sc_pts_msg)
+
+        # 11. Point Sum Invariant
+        tc_pts = sum(tc.points for tc in test_cases)
+        psi_valid = (tc_pts == version.points)
+        psi_msg = f"Test case points sum ({tc_pts}) matches total points ({version.points})" if psi_valid else f"Test case points ({tc_pts}) do not equal question points ({version.points})"
+        checks.append({"key": "point_sum_invariant", "display_name": "Point Sum Invariant", "passed": psi_valid, "message": psi_msg})
+        if not psi_valid:
+            errors.append(psi_msg)
+
+        # 12. Duplicate Inputs
+        seen_inputs = set()
+        has_duplicate = False
+        for tc in test_cases:
+            norm_in = OutputComparisonService.normalize_text(tc.input_data)
+            if norm_in in seen_inputs:
+                has_duplicate = True
+                break
+            seen_inputs.add(norm_in)
+        dup_valid = not has_duplicate
+        dup_msg = "No duplicate test case inputs" if dup_valid else "Duplicate test case inputs detected"
+        checks.append({"key": "duplicate_inputs", "display_name": "Duplicate Inputs", "passed": dup_valid, "message": dup_msg})
+        if not dup_valid:
+            errors.append(dup_msg)
+
+        passed_count = sum(1 for c in checks if c["passed"])
+        is_ready = (passed_count == 12)
+
+        if version.status == VersionStatus.PUBLISHED:
+            calc_status = "PUBLISHED"
+        elif version.status == VersionStatus.ARCHIVED:
+            calc_status = "ARCHIVED"
+        elif is_ready:
+            calc_status = "DRAFT_READY"
+        else:
+            calc_status = "DRAFT_INCOMPLETE"
+
+        return {
+            "is_ready": is_ready,
+            "status": calc_status,
+            "passed_checks": passed_count,
+            "total_checks": 12,
+            "checks": checks,
+            "errors": errors
+        }
 
 
 class QuestionService:
@@ -290,17 +521,26 @@ class QuestionService:
                     constraints=c_data.get('constraints', ''),
                     allowed_languages=c_data.get('allowed_languages', [CodingLanguage.PYTHON, CodingLanguage.CPP, CodingLanguage.JAVA]),
                     time_limit_ms=c_data.get('time_limit_ms', 2000),
-                    memory_limit_mb=c_data.get('memory_limit_mb', 256)
+                    memory_limit_mb=c_data.get('memory_limit_mb', 256),
+                    starter_codes=c_data.get('starter_codes', {}),
+                    examples=c_data.get('examples', []),
+                    reference_solutions=c_data.get('reference_solutions', {}),
+                    reference_solution_language=c_data.get('reference_solution_language', ''),
+                    reference_solution_hash=c_data.get('reference_solution_hash', ''),
+                    reference_solution_verified=c_data.get('reference_solution_verified', False),
+                    reference_solution_verified_at=c_data.get('reference_solution_verified_at')
                 )
 
                 if test_cases_data:
                     for tc_idx, tc_item in enumerate(test_cases_data, start=1):
                         TestCase.objects.create(
                             coding_config=coding_config,
+                            name=tc_item.get('name', ''),
                             input_data=tc_item.get('input_data', ''),
                             expected_output=tc_item.get('expected_output', ''),
                             points=tc_item.get('points', 1),
                             is_hidden=tc_item.get('is_hidden', False),
+                            is_verified=tc_item.get('is_verified', False),
                             execution_order=tc_item.get('execution_order', tc_idx),
                             time_limit_override_ms=tc_item.get('time_limit_override_ms'),
                             memory_limit_override_mb=tc_item.get('memory_limit_override_mb')

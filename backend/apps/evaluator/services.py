@@ -49,6 +49,22 @@ class OutputComparisonService:
     """
 
     @classmethod
+    def normalize_text(cls, text: str) -> str:
+        """
+        Canonical text normalization following CODEGUARD evaluation rules:
+        1. Replace CRLF and CR with LF.
+        2. Line-by-line trailing whitespace stripping (spaces and tabs).
+        3. Pop trailing empty lines.
+        """
+        if text is None:
+            text = ""
+        norm = text.replace('\r\n', '\n').replace('\r', '\n')
+        lines = [line.rstrip(' \t') for line in norm.split('\n')]
+        while lines and lines[-1] == '':
+            lines.pop()
+        return '\n'.join(lines)
+
+    @classmethod
     def compare_exact_stripped(
         cls,
         actual: str,
@@ -215,6 +231,25 @@ class Judge0Adapter:
         if lang_upper in cls.LANGUAGE_IDS:
             return cls.LANGUAGE_IDS[lang_upper]
         raise DRFValidationError({"language": f"Unsupported execution language: {language}"})
+
+    @classmethod
+    def check_health(cls, timeout: float = 1.0) -> bool:
+        """
+        Fast infrastructure health probe verifying Judge0 reachability.
+        Returns True if /system_info responds with HTTP 200, False otherwise.
+        """
+        import requests
+        judge0_url = getattr(settings, 'JUDGE0_URL', 'http://127.0.0.1:2358').rstrip('/')
+        api_key = getattr(settings, 'JUDGE0_API_KEY', '')
+        headers = {}
+        if api_key:
+            headers["X-Auth-Token"] = api_key
+            headers["X-RapidAPI-Key"] = api_key
+        try:
+            resp = requests.get(f"{judge0_url}/system_info", headers=headers, timeout=timeout)
+            return resp.status_code == 200
+        except Exception:
+            return False
 
     @classmethod
     def execute_in_sandbox(
