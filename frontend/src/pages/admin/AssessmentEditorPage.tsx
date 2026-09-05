@@ -124,10 +124,6 @@ export const AssessmentEditorPage: React.FC = () => {
       setErrorMessage('Assessment title cannot be empty.');
       return;
     }
-    if (!trimmedDesc) {
-      setErrorMessage('Assessment description cannot be empty.');
-      return;
-    }
 
     const startDate = new Date(startDatetime);
     const endDate = new Date(endDatetime);

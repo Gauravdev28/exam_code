@@ -122,7 +122,11 @@ class AssessmentAdminDetailSerializer(serializers.ModelSerializer):
 
 class CreateAssessmentSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=255)
-    description = serializers.CharField()
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default=""
+    )
     instructions = serializers.CharField(required=False, allow_blank=True, default="")
     start_datetime = serializers.DateTimeField()
     end_datetime = serializers.DateTimeField()
@@ -145,7 +149,10 @@ class CreateAssessmentSerializer(serializers.Serializer):
 
 class UpdateAssessmentSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=255, required=False)
-    description = serializers.CharField(required=False)
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True
+    )
     instructions = serializers.CharField(required=False, allow_blank=True)
     start_datetime = serializers.DateTimeField(required=False)
     end_datetime = serializers.DateTimeField(required=False)

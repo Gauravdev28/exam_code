@@ -384,12 +384,13 @@ class AssessmentService:
     def create_assessment(
         cls,
         title: str,
-        description: str,
-        start_datetime,
-        end_datetime,
-        duration_minutes: int,
-        total_points: int,
-        created_by: User,
+        *args,
+        description: str = "",
+        start_datetime = None,
+        end_datetime = None,
+        duration_minutes: int = 60,
+        total_points: int = 0,
+        created_by: Optional[User] = None,
         instructions: str = '',
         negative_marking_enabled: bool = False,
         attempt_limit: int = 1,
@@ -397,8 +398,24 @@ class AssessmentService:
         randomize_options: bool = False,
         passing_percentage = None,
         result_visibility: str = 'AFTER_DEADLINE',
-        request=None
+        request=None,
+        **kwargs
     ) -> Assessment:
+        if len(args) >= 1:
+            description = args[0]
+        if len(args) >= 2:
+            start_datetime = args[1]
+        if len(args) >= 3:
+            end_datetime = args[2]
+        if len(args) >= 4:
+            duration_minutes = args[3]
+        if len(args) >= 5:
+            total_points = args[4]
+        if len(args) >= 6:
+            created_by = args[5]
+
+        if start_datetime is None or end_datetime is None:
+            raise DRFValidationError({"dates": "start_datetime and end_datetime are required."})
         if end_datetime <= start_datetime:
             raise DRFValidationError({"end_datetime": "End datetime must be strictly after start datetime."})
         if duration_minutes < 1:
@@ -408,8 +425,8 @@ class AssessmentService:
 
         assessment = Assessment.objects.create(
             title=title.strip(),
-            description=description.strip(),
-            instructions=instructions.strip(),
+            description=(description or '').strip(),
+            instructions=(instructions or '').strip(),
             start_datetime=start_datetime,
             end_datetime=end_datetime,
             duration_minutes=duration_minutes,

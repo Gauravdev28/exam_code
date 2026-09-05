@@ -1039,3 +1039,132 @@ def test_student_cannot_override_authoritative_fields_in_start_save_submit(api_c
     assert ans.snapshot_question.points == 10
 
 
+# ==============================================================================
+# 9. Assessment Draft Description Lifecycle & Validation
+# ==============================================================================
+
+@pytest.mark.django_db
+def test_admin_can_create_draft_assessment_with_empty_description(api_client, admin_user):
+    api_client.force_authenticate(user=admin_user)
+    url = reverse('assessments:admin-assessment-list')
+    now = timezone.now()
+    payload = {
+        "title": "ML Assignment",
+        "description": "",
+        "instructions": "Python",
+        "start_datetime": now.isoformat(),
+        "end_datetime": (now + timedelta(days=2)).isoformat(),
+        "duration_minutes": 60,
+        "total_points": 0,
+    }
+    res = api_client.post(url, payload, format='json')
+    assert res.status_code == 201
+    data = res.json()['data']
+    assert data['title'] == "ML Assignment"
+    assert data['status'] == "DRAFT"
+    assert data['description'] == ""
+
+
+@pytest.mark.django_db
+def test_admin_can_create_draft_assessment_without_description(api_client, admin_user):
+    api_client.force_authenticate(user=admin_user)
+    url = reverse('assessments:admin-assessment-list')
+    now = timezone.now()
+    payload = {
+        "title": "ML Assignment No Desc",
+        "instructions": "Python",
+        "start_datetime": now.isoformat(),
+        "end_datetime": (now + timedelta(days=2)).isoformat(),
+        "duration_minutes": 60,
+        "total_points": 0,
+    }
+    res = api_client.post(url, payload, format='json')
+    assert res.status_code == 201
+    data = res.json()['data']
+    assert data['title'] == "ML Assignment No Desc"
+    assert data['status'] == "DRAFT"
+    assert data['description'] == ""
+
+
+@pytest.mark.django_db
+def test_admin_can_update_draft_assessment_with_empty_description(api_client, admin_user):
+    api_client.force_authenticate(user=admin_user)
+    now = timezone.now()
+    assessment = AssessmentService.create_assessment(
+        title="Initial Draft With Desc",
+        description="Initial description text",
+        start_datetime=now,
+        end_datetime=now + timedelta(days=2),
+        duration_minutes=60,
+        total_points=0,
+        created_by=admin_user
+    )
+    assert assessment.description == "Initial description text"
+
+    url = reverse('assessments:admin-assessment-detail', kwargs={'pk': assessment.id})
+    res = api_client.patch(url, {"description": ""}, format='json')
+    assert res.status_code == 200
+    data = res.json()['data']
+    assert data['description'] == ""
+    assessment.refresh_from_db()
+    assert assessment.description == ""
+
+
+@pytest.mark.django_db
+def test_draft_description_can_be_restored_after_being_empty(api_client, admin_user):
+    api_client.force_authenticate(user=admin_user)
+    now = timezone.now()
+    assessment = AssessmentService.create_assessment(
+        title="Empty Draft",
+        description="",
+        start_datetime=now,
+        end_datetime=now + timedelta(days=2),
+        duration_minutes=60,
+        total_points=0,
+        created_by=admin_user
+    )
+    assert assessment.description == ""
+
+    url = reverse('assessments:admin-assessment-detail', kwargs={'pk': assessment.id})
+    res = api_client.patch(url, {"description": "Restored detailed description for ML Assignment."}, format='json')
+    assert res.status_code == 200
+    data = res.json()['data']
+    assert data['description'] == "Restored detailed description for ML Assignment."
+    assessment.refresh_from_db()
+    assert assessment.description == "Restored detailed description for ML Assignment."
+
+
+@pytest.mark.django_db
+def test_empty_description_does_not_affect_publish_integrity_rules(admin_user, published_mcq_version):
+    now = timezone.now()
+    assessment = AssessmentService.create_assessment(
+        title="Empty Desc Publish Test",
+        description="",
+        start_datetime=now,
+        end_datetime=now + timedelta(days=1),
+        duration_minutes=45,
+        total_points=20,
+        created_by=admin_user
+    )
+
+    # 1. Reject publish with 0 questions even if description is empty
+    with pytest.raises(DRFValidationError) as exc_q:
+        AssessmentService.publish_assessment(assessment=assessment, actor=admin_user)
+    assert "questions" in exc_q.value.detail
+
+    # 2. Add question with points mismatch (10 vs 20) -> verify points invariant rejection
+    AssessmentService.add_question(assessment=assessment, question_version=published_mcq_version, actor=admin_user, points=10)
+    with pytest.raises(DRFValidationError) as exc_pts:
+        AssessmentService.publish_assessment(assessment=assessment, actor=admin_user)
+    assert "total_points" in exc_pts.value.detail
+
+    # 3. Align total_points to 10 -> publish succeeds and snapshot is created cleanly with description=""
+    AssessmentService.update_draft_assessment(assessment=assessment, actor=admin_user, total_points=10)
+    published = AssessmentService.publish_assessment(assessment=assessment, actor=admin_user)
+    assert published.status == AssessmentStatus.PUBLISHED
+    assert hasattr(published, 'snapshot')
+    assert published.snapshot.snapshot_data['description'] == ""
+    assert published.snapshot.snapshot_data['total_points'] == 10
+
+
+
