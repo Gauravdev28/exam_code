@@ -127,3 +127,27 @@ export const deleteStudentAccount = async (
   const response = await apiClient.delete<APIResponse<void>>(`/admin/students/${studentId}/`);
   return response.data;
 };
+
+export interface BulkDeleteResult {
+  total: number;
+  success_count: number;
+  failure_count: number;
+  results: Array<{
+    id: string;
+    email?: string;
+    roll_number?: string;
+    admin_id?: string;
+    success: boolean;
+    error?: string;
+  }>;
+}
+
+export const bulkDeleteStudents = async (
+  studentIds: string[]
+): Promise<APIResponse<BulkDeleteResult>> => {
+  const response = await apiClient.post<APIResponse<BulkDeleteResult>>('/admin/students/bulk-delete/', {
+    ids: studentIds,
+  });
+  return response.data;
+};
+

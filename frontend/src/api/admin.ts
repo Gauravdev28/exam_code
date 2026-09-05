@@ -34,6 +34,24 @@ export const AdminAPI = {
     await apiClient.delete(`/admin/administrators/${adminId}/`);
   },
 
+  bulkDeleteAdministrators: async (adminIds: string[]): Promise<{
+    total: number;
+    success_count: number;
+    failure_count: number;
+    results: Array<{
+      id: string;
+      email?: string;
+      admin_id?: string;
+      success: boolean;
+      error?: string;
+    }>;
+  }> => {
+    const response = await apiClient.post('/admin/administrators/bulk-delete/', {
+      ids: adminIds,
+    });
+    return response.data.data;
+  },
+
   getSecurityAuditLogs: async (params?: Record<string, any>): Promise<{ logs: SecurityAuditLog[]; total: number; limit: number; offset: number }> => {
     const response = await apiClient.get('/admin/audit-logs/', { params });
     return response.data.data;

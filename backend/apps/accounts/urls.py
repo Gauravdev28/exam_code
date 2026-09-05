@@ -24,6 +24,8 @@ from .views import (
     SessionRefreshView,
     AdminSectionListView,
     AdminSectionDetailView,
+    AdminStudentBulkDeleteView,
+    AdminAdministratorBulkDeleteView,
 )
 
 app_name = 'accounts'
@@ -48,6 +50,7 @@ urlpatterns = [
 
     # Admin Management endpoints
     path('admin/administrators/', AdministratorListView.as_view(), name='admin-administrator-list'),
+    path('admin/administrators/bulk-delete/', AdminAdministratorBulkDeleteView.as_view(), name='admin-administrator-bulk-delete'),
     path('admin/administrators/<uuid:pk>/', AdministratorDetailView.as_view(), name='admin-administrator-detail'),
     path('admin/administrators/<uuid:pk>/status/', AdministratorStatusView.as_view(), name='admin-administrator-status'),
     path('admin/administrators/<uuid:pk>/reset-password/', AdministratorResetPasswordView.as_view(), name='admin-administrator-reset-password'),
@@ -55,6 +58,7 @@ urlpatterns = [
 
     # Admin Student Management endpoints
     path('admin/students/', AdminStudentListView.as_view(), name='admin-student-list'),
+    path('admin/students/bulk-delete/', AdminStudentBulkDeleteView.as_view(), name='admin-student-bulk-delete'),
     path('admin/students/<uuid:pk>/', AdminStudentDetailView.as_view(), name='admin-student-detail'),
     path('admin/students/<uuid:pk>/disable/', AdminStudentStatusView.as_view(), {'action': 'disable'}, name='admin-student-disable'),
     path('admin/students/<uuid:pk>/enable/', AdminStudentStatusView.as_view(), {'action': 'enable'}, name='admin-student-enable'),

@@ -507,3 +507,15 @@ class LoginSerializer(serializers.Serializer):
 
         attrs['user'] = user
         return attrs
+
+
+class BulkAccountDeleteSerializer(serializers.Serializer):
+    """
+    Serializer for bulk deletion of students or secondary administrators.
+    """
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        help_text="List of target user or profile IDs to delete."
+    )
+

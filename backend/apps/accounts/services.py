@@ -8,6 +8,7 @@ import uuid
 from typing import List, Dict, Tuple, Any, Optional
 import openpyxl
 from django.db import transaction, IntegrityError
+from django.db.models import Q
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.contrib.auth.password_validation import validate_password
@@ -520,6 +521,62 @@ class StudentService:
         with transaction.atomic():
             student_profile.delete()
             user.delete()
+
+    @classmethod
+    def bulk_delete_students(
+        cls,
+        student_ids: List[str],
+        actor: Optional[User] = None,
+        request=None
+    ) -> Dict[str, Any]:
+        results = []
+        success_count = 0
+        failure_count = 0
+
+        for sid in student_ids:
+            profile = StudentProfile.objects.filter(Q(id=sid) | Q(user_id=sid)).select_related('user').first()
+            if not profile:
+                results.append({
+                    "id": str(sid),
+                    "success": False,
+                    "error": "Student account not found."
+                })
+                failure_count += 1
+                continue
+
+            roll = profile.roll_number
+            email = profile.user.email
+            try:
+                cls.delete_student(student_profile=profile, actor=actor, request=request)
+                results.append({
+                    "id": str(sid),
+                    "email": email,
+                    "roll_number": roll,
+                    "success": True
+                })
+                success_count += 1
+            except Exception as e:
+                err_msg = str(e)
+                if hasattr(e, 'detail'):
+                    if isinstance(e.detail, dict):
+                        err_msg = e.detail.get('detail') or str(e.detail)
+                    else:
+                        err_msg = str(e.detail)
+                results.append({
+                    "id": str(sid),
+                    "email": email,
+                    "roll_number": roll,
+                    "success": False,
+                    "error": err_msg
+                })
+                failure_count += 1
+
+        return {
+            "total": len(student_ids),
+            "success_count": success_count,
+            "failure_count": failure_count,
+            "results": results
+        }
 
 
 class ImportService:
@@ -1068,5 +1125,84 @@ class AccountSecurityService:
 
         with transaction.atomic():
             target_admin.delete()
+
+    @classmethod
+    def bulk_delete_administrators(
+        cls,
+        admin_ids: List[str],
+        actor: Optional[User] = None,
+        request=None
+    ) -> Dict[str, Any]:
+        results = []
+        success_count = 0
+        failure_count = 0
+
+        for aid in admin_ids:
+            target_admin = User.objects.filter(id=aid, role=Role.ADMIN).first()
+            if not target_admin:
+                results.append({
+                    "id": str(aid),
+                    "success": False,
+                    "error": "Administrator account not found."
+                })
+                failure_count += 1
+                continue
+
+            email = target_admin.email
+            admin_id = getattr(target_admin, 'admin_id', "")
+
+            if target_admin.is_primary_admin:
+                results.append({
+                    "id": str(aid),
+                    "email": email,
+                    "admin_id": admin_id,
+                    "success": False,
+                    "error": "The Primary Administrator account is permanently protected and cannot be deleted."
+                })
+                failure_count += 1
+                continue
+
+            if actor and str(actor.id) == str(target_admin.id):
+                results.append({
+                    "id": str(aid),
+                    "email": email,
+                    "admin_id": admin_id,
+                    "success": False,
+                    "error": "Cannot delete your own administrator account."
+                })
+                failure_count += 1
+                continue
+
+            try:
+                cls.delete_administrator(target_admin=target_admin, actor=actor, request=request)
+                results.append({
+                    "id": str(aid),
+                    "email": email,
+                    "admin_id": admin_id,
+                    "success": True
+                })
+                success_count += 1
+            except Exception as e:
+                err_msg = str(e)
+                if hasattr(e, 'detail'):
+                    if isinstance(e.detail, dict):
+                        err_msg = e.detail.get('detail') or str(e.detail)
+                    else:
+                        err_msg = str(e.detail)
+                results.append({
+                    "id": str(aid),
+                    "email": email,
+                    "admin_id": admin_id,
+                    "success": False,
+                    "error": err_msg
+                })
+                failure_count += 1
+
+        return {
+            "total": len(admin_ids),
+            "success_count": success_count,
+            "failure_count": failure_count,
+            "results": results
+        }
 
 

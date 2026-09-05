@@ -64,6 +64,19 @@ export const AdminManagementPage: React.FC = () => {
   const [selectedAdminForDetails, setSelectedAdminForDetails] = useState<Administrator | null>(null);
   const [deleteTargetAdmin, setDeleteTargetAdmin] = useState<Administrator | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Bulk Selection State
+  const [selectedAdminIds, setSelectedAdminIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
+  const [bulkDeleteResult, setBulkDeleteResult] = useState<{
+    total: number;
+    success_count: number;
+    failure_count: number;
+    results: Array<{ id: string; email?: string; admin_id?: string; success: boolean; error?: string }>;
+  } | null>(null);
+
   const [formData, setFormData] = useState<CreateAdminPayload>({
     email: '',
     display_name: '',
@@ -228,6 +241,69 @@ export const AdminManagementPage: React.FC = () => {
 
   const currentUserIsPrimary = user?.admin_id === 'EUAD-GAURAV-099';
 
+  useEffect(() => {
+    setSelectedAdminIds(new Set());
+  }, [searchQuery]);
+
+  const selectableAdmins = filteredAdmins.filter(
+    (a) => !a.is_primary && a.admin_id !== 'EUAD-GAURAV-099' && a.id !== user?.id
+  );
+
+  const allSelectableChecked =
+    selectableAdmins.length > 0 &&
+    selectableAdmins.every((a) => selectedAdminIds.has(a.id));
+
+  const handleSelectAllAdmins = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedAdminIds(new Set(selectableAdmins.map((a) => a.id)));
+    } else {
+      setSelectedAdminIds(new Set());
+    }
+  };
+
+  const handleToggleSelectAdmin = (id: string) => {
+    setSelectedAdminIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleExecuteBulkDeleteAdmins = async () => {
+    if (selectedAdminIds.size === 0) return;
+    setIsBulkDeleting(true);
+    setBulkDeleteError(null);
+    try {
+      const res = await AdminAPI.bulkDeleteAdministrators(Array.from(selectedAdminIds));
+      setBulkDeleteResult(res);
+      if (res.success_count > 0) {
+        setSuccessMessage(`Successfully deleted ${res.success_count} administrator account(s).`);
+        loadAdmins();
+      }
+      const successfulIds = new Set(
+        res.results.filter((r: any) => r.success).map((r: any) => r.id)
+      );
+      setSelectedAdminIds((prev) => {
+        const next = new Set(prev);
+        successfulIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    } catch (err: any) {
+      setBulkDeleteError(
+        err.response?.data?.error?.message ||
+        err.response?.data?.message ||
+        err.message ||
+        'Failed to execute bulk administrator deletion.'
+      );
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Top Banner */}
@@ -332,6 +408,43 @@ export const AdminManagementPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Bulk Action Toolbar */}
+          {selectedAdminIds.size > 0 && (
+            <div className="bg-slate-900 border border-slate-800 text-white px-5 py-3 rounded-xl shadow-xl flex items-center justify-between animate-in fade-in slide-in-from-top-2">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2.5 py-1 rounded-md">
+                  {selectedAdminIds.size} administrator{selectedAdminIds.size === 1 ? '' : 's'} selected
+                </span>
+                <span className="text-xs text-slate-300">of {selectableAdmins.length} eligible</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedAdminIds(new Set())}
+                  className="text-slate-300 hover:text-white text-xs"
+                >
+                  Deselect All
+                </Button>
+                {currentUserIsPrimary && (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => {
+                      setBulkDeleteError(null);
+                      setBulkDeleteResult(null);
+                      setIsBulkDeleteModalOpen(true);
+                    }}
+                    className="bg-rose-600 hover:bg-rose-700 text-white text-xs flex items-center gap-1.5 font-semibold shadow-sm"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Selected ({selectedAdminIds.size})</span>
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Administrators Table */}
           <Card className="p-0 overflow-hidden">
             {isLoading ? (
@@ -356,6 +469,18 @@ export const AdminManagementPage: React.FC = () => {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
                     <tr>
+                      {currentUserIsPrimary && (
+                        <th className="px-4 py-3 w-10 text-center">
+                          <input
+                            type="checkbox"
+                            checked={allSelectableChecked}
+                            onChange={handleSelectAllAdmins}
+                            disabled={selectableAdmins.length === 0}
+                            className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 h-4 w-4 cursor-pointer disabled:opacity-40"
+                            title="Select all eligible secondary administrators"
+                          />
+                        </th>
+                      )}
                       <th className="px-5 py-3">Admin ID</th>
                       <th className="px-5 py-3">Name</th>
                       <th className="px-5 py-3">Email</th>
@@ -367,9 +492,41 @@ export const AdminManagementPage: React.FC = () => {
                     {filteredAdmins.map((admin) => {
                       const isCurrent = admin.id === user?.id;
                       const isPrimary = admin.admin_id === 'EUAD-GAURAV-099' || admin.is_primary;
+                      const isSelected = selectedAdminIds.has(admin.id);
 
                       return (
-                        <tr key={admin.id} className="hover:bg-slate-50/70 transition-colors">
+                        <tr
+                          key={admin.id}
+                          className={`hover:bg-slate-50/70 transition-colors ${
+                            isSelected ? 'bg-purple-50/40' : ''
+                          }`}
+                        >
+                          {currentUserIsPrimary && (
+                            <td className="px-4 py-3.5 text-center">
+                              {isPrimary ? (
+                                <input
+                                  type="checkbox"
+                                  disabled
+                                  className="rounded border-slate-200 text-slate-300 h-4 w-4 cursor-not-allowed opacity-30"
+                                  title="Primary Administrator is protected and cannot be deleted"
+                                />
+                              ) : isCurrent ? (
+                                <input
+                                  type="checkbox"
+                                  disabled
+                                  className="rounded border-slate-200 text-slate-300 h-4 w-4 cursor-not-allowed opacity-30"
+                                  title="You cannot select your own account for deletion"
+                                />
+                              ) : (
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => handleToggleSelectAdmin(admin.id)}
+                                  className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 h-4 w-4 cursor-pointer"
+                                />
+                              )}
+                            </td>
+                          )}
                           <td className="px-5 py-3.5 font-mono font-bold text-slate-900">
                             {admin.admin_id}
                           </td>
@@ -667,6 +824,155 @@ export const AdminManagementPage: React.FC = () => {
               </div>
             </form>
           </Card>
+        </div>
+      )}
+
+      {/* Bulk Delete Administrators Modal */}
+      {isBulkDeleteModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 animate-in zoom-in-95">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-rose-50/50">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-rose-100 text-rose-700 rounded-xl">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Delete {selectedAdminIds.size} Administrator Account{selectedAdminIds.size === 1 ? '' : 's'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Confirm removal of secondary administrator privileges
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  if (!isBulkDeleting) {
+                    setIsBulkDeleteModalOpen(false);
+                    setBulkDeleteResult(null);
+                  }
+                }}
+                disabled={isBulkDeleting}
+                className="text-slate-400 hover:text-slate-600 disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {bulkDeleteError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{bulkDeleteError}</span>
+                </div>
+              )}
+
+              {bulkDeleteResult ? (
+                <div className="space-y-3">
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
+                    <div className="font-semibold text-slate-900">Deletion Summary:</div>
+                    <div className="text-emerald-700 font-mono">
+                      ✓ Succeeded: {bulkDeleteResult.success_count}
+                    </div>
+                    {bulkDeleteResult.failure_count > 0 && (
+                      <div className="text-rose-700 font-mono">
+                        ✕ Failed: {bulkDeleteResult.failure_count}
+                      </div>
+                    )}
+                  </div>
+
+                  {bulkDeleteResult.failure_count > 0 && (
+                    <div className="max-h-48 overflow-y-auto space-y-2 border border-slate-200 rounded-lg p-3 text-xs bg-white">
+                      <div className="font-semibold text-slate-800 mb-1">Errors:</div>
+                      {bulkDeleteResult.results
+                        .filter((r) => !r.success)
+                        .map((r) => (
+                          <div key={r.id} className="p-2 bg-rose-50 rounded border border-rose-100 text-rose-800">
+                            <span className="font-mono font-bold">{r.admin_id || r.id}:</span> {r.error}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-900 space-y-1">
+                    <p className="font-semibold">⚠️ Revocation Warning</p>
+                    <p>
+                      This will permanently delete the selected administrator credentials and revoke all administrative
+                      access to CODEGUARD. All actions will be logged in the immutable security audit trail.
+                    </p>
+                  </div>
+
+                  <div className="text-xs font-semibold text-slate-700">Selected Administrators:</div>
+                  <div className="max-h-48 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-lg bg-slate-50/50">
+                    {admins
+                      .filter((a) => selectedAdminIds.has(a.id))
+                      .map((a) => (
+                        <div key={a.id} className="p-2.5 flex items-center justify-between text-xs">
+                          <div>
+                            <span className="font-mono font-bold text-slate-900 mr-2">{a.admin_id}</span>
+                            <span className="font-medium text-slate-700">{a.display_name}</span>
+                            <div className="text-[11px] text-slate-500 font-mono">{a.email}</div>
+                          </div>
+                          <Badge variant={a.is_active ? 'success' : 'neutral'} size="sm">
+                            {a.is_active ? 'Active' : 'Disabled'}
+                          </Badge>
+                        </div>
+                      ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+              {bulkDeleteResult ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setIsBulkDeleteModalOpen(false);
+                    setBulkDeleteResult(null);
+                  }}
+                >
+                  Close
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsBulkDeleteModalOpen(false)}
+                    disabled={isBulkDeleting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={handleExecuteBulkDeleteAdmins}
+                    disabled={isBulkDeleting}
+                    className="bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1.5"
+                  >
+                    {isBulkDeleting ? (
+                      <>
+                        <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        <span>Deleting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Confirm Delete</span>
+                      </>
+                    )}
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

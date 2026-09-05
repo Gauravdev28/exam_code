@@ -30,6 +30,7 @@ from .serializers import (
     SectionSerializer,
     CreateSectionSerializer,
     UpdateSectionSerializer,
+    BulkAccountDeleteSerializer,
 )
 from apps.assessments.models import Assessment, AssessmentStatus
 from .permissions import IsAdmin, IsStudent, IsActiveUser, IsFirstLoginSatisfied
@@ -1031,4 +1032,60 @@ class SessionRefreshView(APIView):
             data=status_data,
             message="Session activity refreshed successfully."
         )
+
+
+class AdminStudentBulkDeleteView(APIView):
+    """
+    Bulk delete student accounts.
+    POST /api/v1/admin/students/bulk-delete/
+    Body: { "ids": ["<uuid>", ...] }
+    """
+    permission_classes = [IsAuthenticated, IsActiveUser, IsAdmin]
+
+    def post(self, request):
+        serializer = BulkAccountDeleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        student_ids = [str(sid) for sid in serializer.validated_data['ids']]
+
+        result = StudentService.bulk_delete_students(
+            student_ids=student_ids,
+            actor=request.user,
+            request=request
+        )
+        return APIResponse(
+            data=result,
+            message=f"Processed {result['total']} student deletions: {result['success_count']} succeeded, {result['failure_count']} failed."
+        )
+
+
+class AdminAdministratorBulkDeleteView(APIView):
+    """
+    Bulk delete secondary administrator accounts.
+    POST /api/v1/admin/administrators/bulk-delete/
+    Body: { "ids": ["<uuid>", ...] }
+    """
+    permission_classes = [IsAuthenticated, IsActiveUser, IsAdmin]
+
+    def post(self, request):
+        if not getattr(request.user, 'is_primary_admin', False):
+            return APIResponse(
+                status_code=status.HTTP_403_FORBIDDEN,
+                message="Only the Primary Administrator can delete administrator accounts.",
+                error={"code": "FORBIDDEN", "message": "Permission denied."}
+            )
+
+        serializer = BulkAccountDeleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        admin_ids = [str(aid) for aid in serializer.validated_data['ids']]
+
+        result = AccountSecurityService.bulk_delete_administrators(
+            admin_ids=admin_ids,
+            actor=request.user,
+            request=request
+        )
+        return APIResponse(
+            data=result,
+            message=f"Processed {result['total']} administrator deletions: {result['success_count']} succeeded, {result['failure_count']} failed."
+        )
+
 
