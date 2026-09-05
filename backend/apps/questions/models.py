@@ -259,6 +259,18 @@ class CodingQuestionConfig(UUIDModel, TimeStampedModel):
     def __str__(self):
         return f"CodingConfig for {self.question_version}"
 
+    @classmethod
+    def get_code_for_language(cls, solutions_dict: dict, language: str) -> str:
+        if not isinstance(solutions_dict, dict) or not language:
+            return ""
+        if language in solutions_dict:
+            return solutions_dict[language]
+        lang_upper = str(language).strip().upper()
+        for k, v in solutions_dict.items():
+            if str(k).strip().upper() == lang_upper:
+                return v
+        return ""
+
     @staticmethod
     def compute_reference_hash(code: str, language: str) -> str:
         import hashlib
@@ -272,7 +284,7 @@ class CodingQuestionConfig(UUIDModel, TimeStampedModel):
         lang = self.reference_solution_language
         if not lang and self.reference_solutions and isinstance(self.reference_solutions, dict):
             lang = next(iter(self.reference_solutions.keys()))
-        code = self.reference_solutions.get(lang, "") if isinstance(self.reference_solutions, dict) else ""
+        code = self.get_code_for_language(self.reference_solutions, lang)
         return self.compute_reference_hash(code, lang)
 
     def is_reference_solution_current(self) -> bool:
@@ -299,11 +311,11 @@ class CodingQuestionConfig(UUIDModel, TimeStampedModel):
             if old and old['reference_solution_verified']:
                 old_ref_solutions = old['reference_solutions'] or {}
                 old_ref_lang = old['reference_solution_language'] or ""
-                curr_code = self.reference_solutions.get(self.reference_solution_language, "") if isinstance(self.reference_solutions, dict) else ""
-                old_code = old_ref_solutions.get(old_ref_lang, "") if isinstance(old_ref_solutions, dict) else ""
+                curr_code = self.get_code_for_language(self.reference_solutions, self.reference_solution_language)
+                old_code = self.get_code_for_language(old_ref_solutions, old_ref_lang)
 
                 curr_hash = self.compute_reference_hash(curr_code, self.reference_solution_language)
-                if curr_hash != old['reference_solution_hash'] or self.reference_solution_language != old_ref_lang:
+                if curr_hash != old['reference_solution_hash'] or str(self.reference_solution_language).strip().upper() != str(old_ref_lang).strip().upper():
                     # Invalidate reference solution verification
                     self.reference_solution_verified = False
                     self.reference_solution_verified_at = None
