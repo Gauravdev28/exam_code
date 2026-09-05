@@ -11,7 +11,7 @@ from rest_framework.pagination import PageNumberPagination
 
 from apps.accounts.permissions import IsAdmin, IsActiveUser
 from apps.core.views import APIResponse
-from .models import Question, QuestionVersion, Tag, QuestionStatus, VersionStatus
+from .models import Question, QuestionVersion, QuestionType, Tag, QuestionStatus, VersionStatus
 from .services import QuestionService
 from .services_ingestion import SpreadsheetQuestionImporter, ImageQuestionExtractor, TEMP_IMAGE_DIR
 from .serializers import (
@@ -543,3 +543,130 @@ class AdminQuestionTempImageView(APIView):
 
         mime, _ = mimetypes.guess_type(str(file_path))
         return FileResponse(open(file_path, 'rb'), content_type=mime or 'application/octet-stream')
+
+
+class AdminQuestionVersionHealthView(APIView):
+    """
+    Returns the authoritative 12-check Question Health assessment for a QuestionVersion.
+    GET /api/v1/admin/questions/<pk>/versions/<version_number>/health/
+    """
+    permission_classes = [IsAuthenticated, IsActiveUser, IsAdmin]
+
+    def get(self, request, pk, version_number):
+        from .services import CodingQuestionValidationService
+        version = get_object_or_404(
+            QuestionVersion.objects.select_related('coding_config', 'question').prefetch_related('coding_config__test_cases'),
+            question_id=pk,
+            version_number=version_number
+        )
+        if version.question_type != QuestionType.CODING:
+            return APIResponse(
+                error={"message": "Question health assessment is only available for coding questions."},
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        health_data = CodingQuestionValidationService.get_health_status(version)
+        return APIResponse(data=health_data, message="Question health status retrieved.")
+
+
+class AdminSupportedLanguagesView(APIView):
+    """
+    Returns the dynamic registry of execution languages supported by CODEGUARD.
+    GET /api/v1/admin/questions/languages/
+    """
+    permission_classes = [IsAuthenticated, IsActiveUser, IsAdmin]
+
+    def get(self, request):
+        from .models import CodingLanguage
+        from apps.evaluator.services import Judge0Adapter
+
+        starter_templates = {
+            'PYTHON': "# Write your solution below\ndef solve():\n    import sys\n    input_data = sys.stdin.read().split()\n    if not input_data:\n        return\n    # Process solution\n    print(input_data[0])\n\nif __name__ == '__main__':\n    solve()\n",
+            'CPP': "#include <iostream>\n#include <vector>\n#include <string>\n\nusing namespace std;\n\nint main() {\n    ios_base::sync_with_stdio(false);\n    cin.tie(NULL);\n    \n    string s;\n    if (cin >> s) {\n        cout << s << \"\\n\";\n    }\n    \n    return 0;\n}\n",
+            'JAVA': "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        if (scanner.hasNext()) {\n            String input = scanner.next();\n            System.out.println(input);\n        }\n    }\n}\n",
+        }
+
+        languages = []
+        for choice_key, choice_label in CodingLanguage.choices:
+            languages.append({
+                "key": choice_key,
+                "label": choice_label,
+                "monaco_lang": choice_key.lower() if choice_key != 'CPP' else 'cpp',
+                "judge0_id": Judge0Adapter.LANGUAGE_IDS.get(choice_key),
+                "default_starter_code": starter_templates.get(choice_key, "")
+            })
+
+        return APIResponse(data={"languages": languages}, message="Supported languages retrieved.")
+
+
+class AdminPlatformImportStatusView(APIView):
+    """
+    Returns the configuration status of authorized platform integrations.
+    GET /api/v1/admin/questions/platform-import/status/
+    """
+    permission_classes = [IsAuthenticated, IsActiveUser, IsAdmin]
+
+    def get(self, request):
+        from .services_platform_import import PlatformImportService
+        return APIResponse(
+            data=PlatformImportService.get_platforms_status(),
+            message="Platform import integration statuses retrieved."
+        )
+
+
+class AdminPlatformImportPreviewView(APIView):
+    """
+    Parses and returns a normalized preview of a platform question import before creation.
+    POST /api/v1/admin/questions/platform-import/preview/
+    """
+    permission_classes = [IsAuthenticated, IsActiveUser, IsAdmin]
+
+    def post(self, request):
+        from .services_platform_import import PlatformImportService
+        source = request.data.get('source', '')
+        file_obj = request.FILES.get('file')
+        file_bytes = file_obj.read() if file_obj else None
+
+        raw_data = request.data.get('data')
+        if isinstance(raw_data, str):
+            try:
+                raw_data = json.loads(raw_data)
+            except Exception:
+                raw_data = {}
+        elif not isinstance(raw_data, dict):
+            raw_data = dict(request.data)
+
+        preview = PlatformImportService.parse_preview(
+            source=source,
+            payload_data=raw_data,
+            file_bytes=file_bytes
+        )
+        return APIResponse(data=preview, message="Platform import preview generated.")
+
+
+class AdminPlatformImportConfirmView(APIView):
+    """
+    Creates an imported question strictly in DRAFT status with unverified test cases.
+    POST /api/v1/admin/questions/platform-import/confirm/
+    """
+    permission_classes = [IsAuthenticated, IsActiveUser, IsAdmin]
+
+    def post(self, request):
+        from .services_platform_import import PlatformImportService
+        normalized_payload = request.data.get('normalized_payload')
+        if not normalized_payload:
+            return APIResponse(
+                error={"message": "Normalized payload is required to finalize import."},
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        version = PlatformImportService.confirm_and_create_draft(
+            normalized_payload=normalized_payload,
+            actor=request.user,
+            request=request
+        )
+
+        return APIResponse(
+            data=QuestionVersionAdminDetailSerializer(version).data,
+            message=f"Question '{version.title}' successfully imported as Draft.",
+            status_code=status.HTTP_201_CREATED
+        )

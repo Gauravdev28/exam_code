@@ -17,6 +17,7 @@ import { ImportQuestionsSpreadsheetModal } from '../../components/admin/ImportQu
 import { ExtractQuestionImageModal } from '../../components/admin/ExtractQuestionImageModal';
 import { CreateQuestionModal } from '../../components/admin/CreateQuestionModal';
 import { DeleteQuestionModal } from '../../components/admin/DeleteQuestionModal';
+import { ImportPlatformModal } from '../../components/admin/ImportPlatformModal';
 import {
   HelpCircle,
   Plus,
@@ -33,6 +34,7 @@ import {
   Image as ImageIcon,
   Copy,
   Trash2,
+  Globe,
 } from 'lucide-react';
 import { QuestionItem } from '../../types/question';
 
@@ -58,6 +60,7 @@ export const AdminQuestionsPage: React.FC = () => {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isExtractModalOpen, setIsExtractModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isImportPlatformModalOpen, setIsImportPlatformModalOpen] = useState(false);
   const [deleteTargetQuestion, setDeleteTargetQuestion] = useState<QuestionItem | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
@@ -179,6 +182,15 @@ export const AdminQuestionsPage: React.FC = () => {
         description="Manage, version, and configure academic assessment questions across 6 core types"
         actions={
           <div className="flex flex-wrap items-center gap-2.5">
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => setIsImportPlatformModalOpen(true)}
+              className="text-slate-800 bg-white hover:bg-slate-50 border-slate-300 font-semibold shadow-sm"
+            >
+              <Globe className="w-4 h-4 mr-1.5 text-emerald-600" />
+              Import from Platform
+            </Button>
             <Button
               variant="secondary"
               size="md"
@@ -311,11 +323,57 @@ export const AdminQuestionsPage: React.FC = () => {
             <p className="text-xs text-slate-500 font-mono">Querying question catalog...</p>
           </div>
         ) : questions.length === 0 ? (
-          <div className="py-16 text-center space-y-3">
-            <p className="text-slate-500 text-sm">No questions found matching the selected criteria.</p>
-            <Button variant="secondary" size="sm" onClick={() => setIsCreateModalOpen(true)}>
-              Create First Question
-            </Button>
+          <div className="py-16 text-center space-y-4 max-w-md mx-auto px-4">
+            {selectedType || selectedDifficulty || searchQuery.trim() || activeTab !== 'ALL' ? (
+              <div className="space-y-3">
+                <p className="text-slate-600 text-sm">No questions found matching the selected criteria.</p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedType('');
+                    setSelectedDifficulty('');
+                    setSearchQuery('');
+                    setActiveTab('ALL');
+                    setCurrentPage(1);
+                  }}
+                >
+                  Reset Filters
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 mx-auto flex items-center justify-center border border-emerald-100 shadow-sm">
+                  <HelpCircle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">No questions yet</h3>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    Create a coding question manually or import one from an authorized platform.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => navigate('/admin/questions/create?type=CODING')}
+                    className="shadow-sm font-semibold"
+                  >
+                    <Plus className="w-4 h-4 mr-1.5" />
+                    Create Coding Question
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setIsImportPlatformModalOpen(true)}
+                    className="bg-white border-slate-300 text-slate-700 font-semibold"
+                  >
+                    <Globe className="w-4 h-4 mr-1.5 text-emerald-600" />
+                    Import from Platform
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -546,6 +604,14 @@ export const AdminQuestionsPage: React.FC = () => {
       <ExtractQuestionImageModal
         isOpen={isExtractModalOpen}
         onClose={() => setIsExtractModalOpen(false)}
+        onSuccess={() => {
+          fetchQuestions();
+        }}
+      />
+
+      <ImportPlatformModal
+        isOpen={isImportPlatformModalOpen}
+        onClose={() => setIsImportPlatformModalOpen(false)}
         onSuccess={() => {
           fetchQuestions();
         }}

@@ -91,6 +91,7 @@ export const QuestionEditorPage: React.FC = () => {
   const [sqlTimeLimitMs, setSqlTimeLimitMs] = useState<number>(3000);
 
   // UI state
+  const [rawVersionDetail, setRawVersionDetail] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
@@ -119,6 +120,7 @@ export const QuestionEditorPage: React.FC = () => {
       const res = await getQuestionVersionDetail(qId, vNum);
       if (res.data) {
         const v = res.data;
+        setRawVersionDetail(v);
         setQuestionType(v.question_type);
         setVersionStatus(v.status);
         setTitle(v.title);
@@ -418,38 +420,40 @@ export const QuestionEditorPage: React.FC = () => {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 space-y-6 max-w-5xl">
-      {/* Top Navigation */}
-      <div className="flex items-center justify-between border-b border-slate-200 pb-4">
-        <Link
-          to="/admin/questions"
-          className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4 mr-1.5" />
-          Back to Question Bank
-        </Link>
+    <div className={`container mx-auto px-4 py-8 space-y-6 ${questionType === 'CODING' ? 'max-w-7xl' : 'max-w-5xl'}`}>
+      {/* Top Navigation for Non-Coding Question Types */}
+      {questionType !== 'CODING' && (
+        <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+          <Link
+            to="/admin/questions"
+            className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4 mr-1.5" />
+            Back to Question Bank
+          </Link>
 
-        <div className="flex items-center gap-2">
-          {isEditing && (
-            <Badge
-              variant={
-                versionStatus === 'PUBLISHED'
-                  ? 'success'
-                  : versionStatus === 'ARCHIVED'
-                  ? 'neutral'
-                  : 'warning'
-              }
-            >
-              {versionStatus} v{routeVersionNum}
-            </Badge>
-          )}
-          {isLocked && (
-            <span className="flex items-center gap-1 text-xs text-amber-700 font-medium">
-              <Lock className="w-3.5 h-3.5" /> Locked (Immutable)
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {isEditing && (
+              <Badge
+                variant={
+                  versionStatus === 'PUBLISHED'
+                    ? 'success'
+                    : versionStatus === 'ARCHIVED'
+                    ? 'neutral'
+                    : 'warning'
+                }
+              >
+                {versionStatus} v{routeVersionNum}
+              </Badge>
+            )}
+            {isLocked && (
+              <span className="flex items-center gap-1 text-xs text-amber-700 font-medium">
+                <Lock className="w-3.5 h-3.5" /> Locked (Immutable)
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Notifications */}
       {errorMessage && (
@@ -466,31 +470,34 @@ export const QuestionEditorPage: React.FC = () => {
         </div>
       )}
 
-      {/* When Question Type is CODING, render the 6-step professional CodingQuestionEditor */}
+      {/* Single-Page Coding Question Workspace */}
       {questionType === 'CODING' ? (
         <CodingQuestionEditor
-          initialData={{
-            question: routeQuestionId,
-            title,
-            difficulty,
-            points,
-            negative_marking_enabled: negativeMarkingEnabled,
-            negative_points: negativePoints,
-            tags: tagsInput ? tagsInput.split(',').map((s) => s.trim()).filter(Boolean) : [],
-            description,
-            instructions,
-            coding_config: {
-              problem_statement: codingProblemStatement || description,
-              constraints: codingConstraints,
-              allowed_languages: allowedLanguages,
-              starter_code: '',
-              time_limit_ms: timeLimitMs,
-              memory_limit_mb: memoryLimitMb,
-              test_cases: testCases,
-            },
-          }}
+          initialData={
+            rawVersionDetail || {
+              question: routeQuestionId,
+              title,
+              difficulty,
+              points,
+              negative_marking_enabled: negativeMarkingEnabled,
+              negative_points: negativePoints,
+              tags: tagsInput ? tagsInput.split(',').map((s) => s.trim()).filter(Boolean) : [],
+              description,
+              instructions,
+              coding_config: {
+                problem_statement: codingProblemStatement || description,
+                constraints: codingConstraints,
+                allowed_languages: allowedLanguages,
+                starter_code: '',
+                time_limit_ms: timeLimitMs,
+                memory_limit_mb: memoryLimitMb,
+                test_cases: testCases,
+              },
+            }
+          }
           isLocked={isLocked}
           versionNumber={routeVersionNum}
+          questionId={routeQuestionId}
           onSaveDraft={handleCodingSaveDraft}
           onPublish={handleCodingPublish}
           isSaving={isSaving}

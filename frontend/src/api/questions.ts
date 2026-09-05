@@ -212,3 +212,55 @@ export const runSandboxTest = async (
   return res.data;
 };
 
+export const getQuestionVersionHealth = async (
+  questionId: string,
+  versionNumber: number
+): Promise<APIResponse<any>> => {
+  const res = await apiClient.get<APIResponse<any>>(
+    `/admin/questions/${questionId}/versions/${versionNumber}/health/`
+  );
+  return res.data;
+};
+
+export const getSupportedLanguages = async (): Promise<APIResponse<{ languages: any[] }>> => {
+  const res = await apiClient.get<APIResponse<{ languages: any[] }>>('/admin/questions/languages/');
+  return res.data;
+};
+
+export const getPlatformImportStatus = async (): Promise<APIResponse<any>> => {
+  const res = await apiClient.get<APIResponse<any>>('/admin/questions/platform-import/status/');
+  return res.data;
+};
+
+export const previewPlatformImport = async (
+  source: string,
+  data?: any,
+  file?: File
+): Promise<APIResponse<any>> => {
+  if (file) {
+    const formData = new FormData();
+    formData.append('source', source);
+    formData.append('file', file);
+    if (data) formData.append('data', JSON.stringify(data));
+    const res = await apiClient.post<APIResponse<any>>('/admin/questions/platform-import/preview/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return res.data;
+  } else {
+    const res = await apiClient.post<APIResponse<any>>('/admin/questions/platform-import/preview/', {
+      source,
+      data,
+    });
+    return res.data;
+  }
+};
+
+export const confirmPlatformImport = async (
+  normalized_payload: any
+): Promise<APIResponse<QuestionVersionDetail>> => {
+  const res = await apiClient.post<APIResponse<QuestionVersionDetail>>('/admin/questions/platform-import/confirm/', {
+    normalized_payload,
+  });
+  return res.data;
+};
+

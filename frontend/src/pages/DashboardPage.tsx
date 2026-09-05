@@ -14,10 +14,9 @@ import {
   Calendar,
   Clock,
   ArrowRight,
-  BookOpen,
+  Code2,
   UserPlus,
   ShieldCheck,
-  Activity,
   Award
 } from 'lucide-react';
 
@@ -54,33 +53,6 @@ export const DashboardPage: React.FC = () => {
 
   const displayName = user?.display_name || user?.first_name || (user?.email ? user.email.split('@')[0] : 'Administrator');
   const adminId = user?.admin_id || '';
-
-  const formatActivityAction = (action: string) => {
-    switch (action) {
-      case 'ASSESSMENT_CREATED':
-        return 'Assessment Created';
-      case 'ASSESSMENT_PUBLISHED':
-        return 'Assessment Published';
-      case 'STUDENT_CREATED':
-        return 'Student Registered';
-      case 'STUDENT_UPDATED':
-        return 'Student Account Updated';
-      case 'ADMIN_CREATED':
-        return 'Administrator Created';
-      case 'ADMIN_STATUS_UPDATED':
-        return 'Admin Status Updated';
-      case 'PROCTOR_ASSIGNED':
-        return 'Proctor Assigned';
-      case 'RESULTS_FINALIZED':
-        return 'Results Finalized';
-      case 'LOGIN_SUCCESS':
-        return 'Administrative Sign In';
-      case 'LOGOUT':
-        return 'Session Terminated';
-      default:
-        return action.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
-    }
-  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -186,16 +158,16 @@ export const DashboardPage: React.FC = () => {
             </Card>
           </Link>
 
-          <Link to="/admin/questions/create">
+          <Link to="/admin/questions/create?type=CODING">
             <Card className="p-4 flex items-center gap-3 hover:border-emerald-300 transition-colors group">
-              <div className="w-10 h-10 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center group-hover:bg-amber-100 transition-colors">
-                <BookOpen className="w-5 h-5" />
+              <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center group-hover:bg-emerald-100 transition-colors">
+                <Code2 className="w-5 h-5" />
               </div>
               <div>
-                <div className="text-sm font-bold text-slate-900 group-hover:text-amber-800 transition-colors">
-                  Add Question
+                <div className="text-sm font-bold text-slate-900 group-hover:text-emerald-700 transition-colors">
+                  Add Coding Question
                 </div>
-                <div className="text-xs text-slate-500">New coding problem</div>
+                <div className="text-xs text-slate-500">Single-page authoring workspace</div>
               </div>
             </Card>
           </Link>
@@ -230,8 +202,8 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Content Grid: Recent Assessments & Upcoming / Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      {/* Main Content Grid: Recent Assessments & Upcoming Examinations */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         {/* Left 2 Columns: Recent Assessments */}
         <div className="lg:col-span-2 space-y-4">
           <div className="flex items-center justify-between">
@@ -242,7 +214,7 @@ export const DashboardPage: React.FC = () => {
             </Link>
           </div>
 
-          <Card className="p-0 overflow-hidden">
+          <Card className="p-0 overflow-hidden shadow-sm">
             {isLoading ? (
               <div className="p-8 text-center text-xs text-slate-500">Loading assessments...</div>
             ) : !overview?.recent_assessments || overview.recent_assessments.length === 0 ? (
@@ -314,27 +286,37 @@ export const DashboardPage: React.FC = () => {
           </Card>
         </div>
 
-        {/* Right 1 Column: Upcoming Assessments & Recent Activity */}
+        {/* Right 1 Column: Upcoming Examinations & Question Bank Shortcuts */}
         <div className="space-y-6">
-          {/* Upcoming Assessments */}
+          {/* Upcoming Examinations */}
           <div className="space-y-3">
-            <h2 className="text-base font-bold text-slate-900">Upcoming Examinations</h2>
-            <Card className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-slate-900">Upcoming Examinations</h2>
+              <span className="text-[11px] font-mono text-slate-500">
+                {overview?.upcoming_assessments?.length || 0} Scheduled
+              </span>
+            </div>
+            <Card className="p-4 space-y-3 shadow-sm">
               {isLoading ? (
                 <div className="p-4 text-center text-xs text-slate-500">Loading schedule...</div>
               ) : !overview?.upcoming_assessments || overview.upcoming_assessments.length === 0 ? (
-                <p className="text-xs text-slate-500 py-3 text-center">
-                  No upcoming examinations scheduled.
-                </p>
+                <div className="text-center py-6 space-y-2">
+                  <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 mx-auto flex items-center justify-center">
+                    <Calendar className="w-4 h-4" />
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    No upcoming examinations scheduled.
+                  </p>
+                </div>
               ) : (
                 <div className="space-y-2.5">
                   {overview.upcoming_assessments.map((u) => (
                     <div
                       key={u.id}
-                      className="p-3 rounded-lg bg-slate-50 border border-slate-200/80 flex items-start justify-between gap-3"
+                      className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 hover:border-slate-300 transition-colors flex items-start justify-between gap-3"
                     >
-                      <div className="space-y-1">
-                        <div className="text-xs font-bold text-slate-900 leading-snug">{u.title}</div>
+                      <div className="space-y-1 min-w-0">
+                        <div className="text-xs font-bold text-slate-900 leading-snug truncate">{u.title}</div>
                         <div className="text-[11px] text-slate-500 flex items-center gap-2 font-mono">
                           <span className="flex items-center gap-1">
                             <Clock className="w-3 h-3 text-slate-400" />
@@ -354,35 +336,27 @@ export const DashboardPage: React.FC = () => {
             </Card>
           </div>
 
-          {/* Recent Operational Activity */}
+          {/* Quick Problem Authoring & Import */}
           <div className="space-y-3">
-            <h2 className="text-base font-bold text-slate-900">Recent Activity</h2>
-            <Card className="p-4 space-y-3">
-              {isLoading ? (
-                <div className="p-4 text-center text-xs text-slate-500">Loading activity...</div>
-              ) : !overview?.recent_activity || overview.recent_activity.length === 0 ? (
-                <p className="text-xs text-slate-500 py-3 text-center">
-                  No activity recorded yet.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {overview.recent_activity.slice(0, 6).map((act) => (
-                    <div key={act.id} className="flex items-start gap-2.5 text-xs pb-2.5 border-b border-slate-100 last:border-0 last:pb-0">
-                      <div className="w-6 h-6 rounded-md bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 mt-0.5">
-                        <Activity className="w-3.5 h-3.5 text-emerald-600" />
-                      </div>
-                      <div className="flex-1 space-y-0.5 min-w-0">
-                        <div className="text-slate-800 font-medium truncate">
-                          {formatActivityAction(act.action)}
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          by <span className="font-semibold text-slate-700">{act.actor_name}</span> &bull; {new Date(act.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+            <h2 className="text-base font-bold text-slate-900">Question Authoring</h2>
+            <Card className="p-4 space-y-3 shadow-sm bg-gradient-to-br from-slate-50 to-white border-slate-200">
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Author sandboxed coding challenges or import authorized problems into the CODEGUARD question bank.
+              </p>
+              <div className="flex flex-col gap-2 pt-1">
+                <Link to="/admin/questions/create?type=CODING" className="w-full">
+                  <Button variant="primary" size="sm" className="w-full justify-center">
+                    <Code2 className="w-3.5 h-3.5 mr-1.5" />
+                    New Coding Question
+                  </Button>
+                </Link>
+                <Link to="/admin/questions" className="w-full">
+                  <Button variant="secondary" size="sm" className="w-full justify-center">
+                    <span>Open Question Bank</span>
+                    <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                  </Button>
+                </Link>
+              </div>
             </Card>
           </div>
         </div>

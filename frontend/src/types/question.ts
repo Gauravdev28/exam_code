@@ -23,10 +23,13 @@ export interface Tag {
 
 export interface TestCase {
   id?: string;
+  name?: string;
   input_data: string;
   expected_output: string;
   points: number;
   is_hidden: boolean;
+  is_verified?: boolean;
+  difficulty?: Difficulty;
   execution_order: number;
   time_limit_override_ms?: number | null;
   memory_limit_override_mb?: number | null;
@@ -41,6 +44,13 @@ export interface CodingQuestionConfig {
   allowed_languages: CodingLanguage[];
   time_limit_ms: number;
   memory_limit_mb: number;
+  starter_codes?: Record<string, string>;
+  examples?: Array<{ id?: string; name?: string; input: string; output: string; explanation?: string }>;
+  reference_solutions?: Record<string, string>;
+  reference_solution_language?: string;
+  reference_solution_hash?: string;
+  reference_solution_verified?: boolean;
+  reference_solution_verified_at?: string | null;
   test_cases?: TestCase[];
 }
 
@@ -51,6 +61,54 @@ export interface SQLQuestionConfig {
   expected_result_definition: string;
   allowed_dialect: string;
   time_limit_ms: number;
+}
+
+export interface QuestionHealthCheck {
+  key: string;
+  display_name: string;
+  passed: boolean;
+  message: string;
+}
+
+export interface QuestionHealthStatus {
+  is_ready: boolean;
+  status: string;
+  passed_checks: number;
+  total_checks: number;
+  checks: QuestionHealthCheck[];
+  errors: string[];
+}
+
+export interface PlatformImportStatus {
+  hackerrank: { configured: boolean; auth_mode: string; message: string };
+  leetcode: { configured: boolean; auth_mode: string; message: string };
+  zip_package: { supported: boolean; auth_mode: string; message: string };
+  manual_json: { supported: boolean; auth_mode: string; message: string };
+}
+
+export interface PlatformImportPreview {
+  source: string;
+  title: string;
+  difficulty: Difficulty;
+  tags: string[];
+  languages: CodingLanguage[];
+  examples: Array<{ input: string; output: string; explanation?: string }>;
+  test_case_count: number;
+  sample_test_count: number;
+  hidden_test_count: number;
+  has_reference_solution: boolean;
+  reference_solution_language: string;
+  expected_output_verification_status: string;
+  import_status: string;
+  normalized_payload: any;
+}
+
+export interface SupportedLanguageItem {
+  key: CodingLanguage;
+  label: string;
+  monaco_lang: string;
+  judge0_id: number;
+  default_starter_code: string;
 }
 
 export interface QuestionVersionSummary {
@@ -84,6 +142,7 @@ export interface QuestionVersionDetail {
   type_config: Record<string, any>;
   coding_config?: CodingQuestionConfig | null;
   sql_config?: SQLQuestionConfig | null;
+  health_status?: QuestionHealthStatus | null;
   created_by_email?: string;
   published_at?: string | null;
   created_at: string;

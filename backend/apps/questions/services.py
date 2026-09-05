@@ -647,6 +647,20 @@ class QuestionService:
                             c_conf.time_limit_ms = coding_config_data['time_limit_ms']
                         if 'memory_limit_mb' in coding_config_data:
                             c_conf.memory_limit_mb = coding_config_data['memory_limit_mb']
+                        if 'starter_codes' in coding_config_data:
+                            c_conf.starter_codes = coding_config_data['starter_codes']
+                        if 'examples' in coding_config_data:
+                            c_conf.examples = coding_config_data['examples']
+                        if 'reference_solutions' in coding_config_data:
+                            c_conf.reference_solutions = coding_config_data['reference_solutions']
+                        if 'reference_solution_language' in coding_config_data:
+                            c_conf.reference_solution_language = coding_config_data['reference_solution_language']
+                        if 'reference_solution_hash' in coding_config_data:
+                            c_conf.reference_solution_hash = coding_config_data['reference_solution_hash']
+                        if 'reference_solution_verified' in coding_config_data:
+                            c_conf.reference_solution_verified = coding_config_data['reference_solution_verified']
+                        if 'reference_solution_verified_at' in coding_config_data:
+                            c_conf.reference_solution_verified_at = coding_config_data['reference_solution_verified_at']
                         c_conf.save()
 
                     if test_cases_data is not None:
@@ -655,10 +669,12 @@ class QuestionService:
                         for tc_idx, tc_item in enumerate(test_cases_data, start=1):
                             TestCase.objects.create(
                                 coding_config=c_conf,
+                                name=tc_item.get('name', ''),
                                 input_data=tc_item.get('input_data', ''),
                                 expected_output=tc_item.get('expected_output', ''),
                                 points=tc_item.get('points', 1),
                                 is_hidden=tc_item.get('is_hidden', False),
+                                is_verified=tc_item.get('is_verified', False),
                                 execution_order=tc_item.get('execution_order', tc_idx),
                                 time_limit_override_ms=tc_item.get('time_limit_override_ms'),
                                 memory_limit_override_mb=tc_item.get('memory_limit_override_mb')

@@ -26,10 +26,12 @@ class TestCaseAdminSerializer(serializers.ModelSerializer):
         model = TestCase
         fields = [
             'id',
+            'name',
             'input_data',
             'expected_output',
             'points',
             'is_hidden',
+            'is_verified',
             'execution_order',
             'time_limit_override_ms',
             'memory_limit_override_mb',
@@ -45,6 +47,7 @@ class TestCasePublicSerializer(serializers.ModelSerializer):
         model = TestCase
         fields = [
             'id',
+            'name',
             'input_data',
             'expected_output',
             'points',
@@ -68,6 +71,13 @@ class CodingQuestionConfigAdminSerializer(serializers.ModelSerializer):
             'allowed_languages',
             'time_limit_ms',
             'memory_limit_mb',
+            'starter_codes',
+            'examples',
+            'reference_solutions',
+            'reference_solution_language',
+            'reference_solution_hash',
+            'reference_solution_verified',
+            'reference_solution_verified_at',
             'test_cases',
             'created_at',
             'updated_at',
@@ -89,6 +99,8 @@ class CodingQuestionConfigPublicSerializer(serializers.ModelSerializer):
             'allowed_languages',
             'time_limit_ms',
             'memory_limit_mb',
+            'starter_codes',
+            'examples',
             'test_cases',
         ]
         read_only_fields = fields
@@ -121,6 +133,7 @@ class QuestionVersionAdminDetailSerializer(serializers.ModelSerializer):
     coding_config = CodingQuestionConfigAdminSerializer(read_only=True)
     sql_config = SQLQuestionConfigSerializer(read_only=True)
     created_by_email = serializers.EmailField(source='created_by.email', read_only=True)
+    health_status = serializers.SerializerMethodField()
 
     class Meta:
         model = QuestionVersion
@@ -141,6 +154,7 @@ class QuestionVersionAdminDetailSerializer(serializers.ModelSerializer):
             'type_config',
             'coding_config',
             'sql_config',
+            'health_status',
             'created_by_email',
             'published_at',
             'created_at',
@@ -152,11 +166,18 @@ class QuestionVersionAdminDetailSerializer(serializers.ModelSerializer):
             'version_number',
             'question_type',
             'status',
+            'health_status',
             'created_by_email',
             'published_at',
             'created_at',
             'updated_at',
         ]
+
+    def get_health_status(self, obj: QuestionVersion):
+        from .services import CodingQuestionValidationService
+        if obj.question_type == QuestionType.CODING and hasattr(obj, 'coding_config') and obj.coding_config:
+            return CodingQuestionValidationService.get_health_status(obj)
+        return None
 
 
 class QuestionVersionPublicDetailSerializer(serializers.ModelSerializer):

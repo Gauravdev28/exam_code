@@ -16,11 +16,24 @@ from .views import (
     AdminQuestionSpreadsheetConfirmView,
     AdminQuestionImageExtractView,
     AdminQuestionTempImageView,
+    AdminQuestionVersionHealthView,
+    AdminSupportedLanguagesView,
+    AdminPlatformImportStatusView,
+    AdminPlatformImportPreviewView,
+    AdminPlatformImportConfirmView,
 )
 
 app_name = 'questions'
 
 urlpatterns = [
+    # Supported Languages Registry
+    path('admin/questions/languages/', AdminSupportedLanguagesView.as_view(), name='admin-question-languages'),
+
+    # Ingestion: Platform Import (Authorized HackerRank, LeetCode Manual, ZIP Package)
+    path('admin/questions/platform-import/status/', AdminPlatformImportStatusView.as_view(), name='admin-platform-import-status'),
+    path('admin/questions/platform-import/preview/', AdminPlatformImportPreviewView.as_view(), name='admin-platform-import-preview'),
+    path('admin/questions/platform-import/confirm/', AdminPlatformImportConfirmView.as_view(), name='admin-platform-import-confirm'),
+
     # Ingestion: Spreadsheet (Excel/CSV) & Image OCR Extraction
     path('admin/questions/import/template/', AdminQuestionTemplateDownloadView.as_view(), name='admin-question-import-template'),
     path('admin/questions/import/preview/', AdminQuestionSpreadsheetPreviewView.as_view(), name='admin-question-import-preview'),
@@ -40,6 +53,7 @@ urlpatterns = [
     # Question Versions
     path('admin/questions/<uuid:pk>/versions/', AdminQuestionVersionListView.as_view(), name='admin-question-version-list'),
     path('admin/questions/<uuid:pk>/versions/<int:version_number>/', AdminQuestionVersionDetailView.as_view(), name='admin-question-version-detail'),
+    path('admin/questions/<uuid:pk>/versions/<int:version_number>/health/', AdminQuestionVersionHealthView.as_view(), name='admin-question-version-health'),
     path('admin/questions/<uuid:pk>/versions/<int:version_number>/publish/', AdminQuestionVersionPublishView.as_view(), name='admin-question-version-publish'),
     path('admin/questions/<uuid:pk>/versions/<int:version_number>/archive/', AdminQuestionVersionArchiveView.as_view(), name='admin-question-version-archive'),
     path('admin/questions/<uuid:pk>/versions/<int:version_number>/preview/', AdminQuestionVersionPreviewView.as_view(), name='admin-question-version-preview'),
