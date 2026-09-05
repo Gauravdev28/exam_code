@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.core.exceptions import PermissionDenied, ValidationError as DjangoValidationError
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-from apps.accounts.models import AuditLog, User
+from apps.accounts.models import AuditLog, User, Role, Section, StudentProfile
 from apps.accounts.services import AuditService
 from apps.questions.models import QuestionVersion, VersionStatus, QuestionType
 from .models import (
@@ -375,6 +375,161 @@ class AssessmentSnapshotService:
         return snapshot
 
 
+class AssessmentAudienceService:
+    """
+    Authoritative domain service for resolving and configuring assessment audience targeting.
+    Enforces that Section is purely a selection mechanism while AssessmentAssignment is authoritative access control.
+    """
+    @classmethod
+    def resolve_audience(
+        cls,
+        assessment: Assessment,
+        section_ids: Optional[List[str]] = None,
+        student_ids: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Pure authoritative audience calculation.
+        Resolves Section students UNION Individual students, deduplicated by User ID.
+        Never creates persistent assignment records.
+        """
+        if section_ids is None:
+            section_ids = [str(sid) for sid in assessment.target_sections.values_list('id', flat=True)]
+        else:
+            section_ids = [str(sid) for sid in section_ids if sid]
+
+        if student_ids is None:
+            student_ids = [str(uid) for uid in assessment.target_students.values_list('id', flat=True)]
+        else:
+            student_ids = [str(uid) for uid in student_ids if uid]
+
+        # 1. Resolve Section Students
+        sections = list(Section.objects.filter(id__in=section_ids))
+        section_students = list(User.objects.filter(
+            role=Role.STUDENT,
+            is_active=True,
+            student_profile__isnull=False,
+            student_profile__section__in=sections
+        ).select_related('student_profile', 'student_profile__section').distinct())
+
+        section_student_ids = {str(st.id) for st in section_students}
+
+        sections_summary = []
+        for sec in sections:
+            count = sum(1 for st in section_students if st.student_profile and st.student_profile.section_id == sec.id)
+            sections_summary.append({
+                "id": str(sec.id),
+                "code": sec.code,
+                "name": sec.name,
+                "is_active": sec.is_active,
+                "student_count": count
+            })
+
+        # 2. Resolve Individually Targeted Students
+        individual_students = list(User.objects.filter(
+            id__in=student_ids
+        ).select_related('student_profile', 'student_profile__section'))
+
+        # Server-authoritative validation: each individual must be an active eligible student
+        for st in individual_students:
+            if st.role != Role.STUDENT or not hasattr(st, 'student_profile') or not st.is_active:
+                raise DRFValidationError({
+                    "target_students": f"Account '{st.email}' cannot be targeted as a student (role: {st.role}, active: {st.is_active})."
+                })
+
+        individual_student_ids = {str(st.id) for st in individual_students}
+
+        additional_students_summary = []
+        for st in individual_students:
+            profile = getattr(st, 'student_profile', None)
+            additional_students_summary.append({
+                "id": str(st.id),
+                "email": st.email,
+                "display_name": st.display_name,
+                "roll_number": profile.roll_number if profile else "",
+                "euid": profile.euid if profile else "",
+                "section": profile.section.code if (profile and profile.section) else None
+            })
+
+        # 3. UNION and Deduplicate by Student User ID
+        final_eligible_ids = sorted(list(section_student_ids.union(individual_student_ids)))
+        overlap_ids = sorted(list(section_student_ids.intersection(individual_student_ids)))
+
+        total_eligible = len(final_eligible_ids)
+        return {
+            "section_student_count": len(section_student_ids),
+            "individual_student_count": len(individual_student_ids),
+            "overlap_count": len(overlap_ids),
+            "total_eligible": total_eligible,
+            "total_eligible_count": total_eligible,
+            "eligible_student_ids": final_eligible_ids,
+            "sections": sections_summary,
+            "additional_students": additional_students_summary,
+            "students": additional_students_summary
+        }
+
+    @classmethod
+    def configure_audience(
+        cls,
+        assessment: Assessment,
+        section_ids: Optional[List[Any]] = None,
+        student_ids: Optional[List[Any]] = None,
+        actor: Optional[User] = None,
+        request=None
+    ) -> Dict[str, Any]:
+        """
+        Configures draft assessment audience.
+        Rejects audience mutation on PUBLISHED or ARCHIVED assessments.
+        """
+        if assessment.status in [AssessmentStatus.PUBLISHED, AssessmentStatus.ARCHIVED]:
+            raise PermissionDenied(
+                "Published or archived assessments cannot change their target audience. "
+                "Use assignment management to add or revoke individual access."
+            )
+
+        clean_section_ids = [str(sid) for sid in section_ids if sid] if section_ids is not None else []
+        clean_student_ids = [str(uid) for uid in student_ids if uid] if student_ids is not None else []
+
+        # Validate sections exist and are active
+        sections = list(Section.objects.filter(id__in=clean_section_ids))
+        if len(sections) != len(set(clean_section_ids)):
+            raise DRFValidationError({"sections": "One or more selected sections do not exist."})
+        for sec in sections:
+            if not sec.is_active:
+                raise DRFValidationError({"sections": f"Inactive section '{sec.code}' cannot be targeted."})
+
+        # Validate individual students exist and are active students
+        students = list(User.objects.filter(id__in=clean_student_ids))
+        if len(students) != len(set(clean_student_ids)):
+            raise DRFValidationError({"students": "One or more selected students do not exist."})
+        for st in students:
+            if st.role != Role.STUDENT or not hasattr(st, 'student_profile') or not st.is_active:
+                raise DRFValidationError({
+                    "students": f"Account '{st.email}' cannot be targeted as a student (role: {st.role}, active: {st.is_active})."
+                })
+
+        with transaction.atomic():
+            assessment.target_sections.set(sections)
+            assessment.target_students.set(students)
+
+            resolved = cls.resolve_audience(assessment)
+
+            AuditService.log(
+                action="ASSESSMENT_AUDIENCE_CONFIGURED",
+                actor=actor,
+                target_type="Assessment",
+                target_id=str(assessment.id),
+                metadata={
+                    "title": assessment.title,
+                    "section_codes": [s.code for s in sections],
+                    "individual_student_count": len(students),
+                    "total_eligible": resolved["total_eligible"]
+                },
+                request=request
+            )
+
+        return resolved
+
+
 class AssessmentService:
     """
     Authoritative domain service for Assessment lifecycle, configuration, publishing, and assignments.
@@ -608,7 +763,16 @@ class AssessmentService:
 
     @classmethod
     @transaction.atomic
-    def publish_assessment(cls, assessment: Assessment, actor: User, request=None) -> Assessment:
+    def publish_assessment(
+        cls,
+        assessment: Assessment,
+        actor: User,
+        request=None,
+        enforce_audience: bool = False
+    ) -> Assessment:
+        # 1. Lock Assessment row to prevent concurrent publish or audience mutation races
+        assessment = Assessment.objects.select_for_update().get(id=assessment.id)
+
         if assessment.status != AssessmentStatus.DRAFT:
             raise DRFValidationError({"status": f"Only DRAFT assessments can be published. Current status: {assessment.status}"})
 
@@ -616,17 +780,38 @@ class AssessmentService:
         if not qs:
             raise DRFValidationError({"questions": "Cannot publish an assessment with zero questions."})
 
-        # Correction 5: Points Invariant SUM(AssessmentQuestion.points) == Assessment.total_points
+        # Points Invariant SUM(AssessmentQuestion.points) == Assessment.total_points
         sum_points = sum(q.points for q in qs)
         if sum_points != assessment.total_points:
             raise DRFValidationError({
                 "total_points": f"Assessment total_points ({assessment.total_points}) must exactly match the sum of question points ({sum_points})."
             })
 
-        # Generate frozen snapshot
+        # 2. Fresh authoritative audience resolution inside this transaction
+        resolved_audience = AssessmentAudienceService.resolve_audience(assessment)
+        eligible_student_ids = resolved_audience["eligible_student_ids"]
+        has_existing_assignments = assessment.assignments.filter(status=AssignmentStatus.ASSIGNED).exists()
+
+        # 3. Zero-audience publish blocking
+        if enforce_audience or (request is not None):
+            if len(eligible_student_ids) == 0 and not has_existing_assignments:
+                raise DRFValidationError({
+                    "audience": "Select at least one student or section before publishing."
+                })
+
+        # 4. Atomic authoritative assignment creation
+        if eligible_student_ids:
+            cls.assign_students(
+                assessment=assessment,
+                student_ids=eligible_student_ids,
+                actor=actor,
+                request=request
+            )
+
+        # 5. Generate frozen snapshot
         AssessmentSnapshotService.create_snapshot(assessment=assessment, actor=actor, request=request)
 
-        # Transition status
+        # 6. Transition status
         assessment.status = AssessmentStatus.PUBLISHED
         assessment.published_at = timezone.now()
         assessment.save()
@@ -639,7 +824,8 @@ class AssessmentService:
             metadata={
                 "title": assessment.title,
                 "total_points": assessment.total_points,
-                "question_count": len(qs)
+                "question_count": len(qs),
+                "audience_assigned_count": len(eligible_student_ids)
             },
             request=request
         )

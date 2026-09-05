@@ -91,6 +91,18 @@ class Assessment(UUIDModel, TimeStampedModel):
         related_name='created_assessments'
     )
     published_at = models.DateTimeField(null=True, blank=True)
+    target_sections = models.ManyToManyField(
+        'accounts.Section',
+        blank=True,
+        related_name='targeted_assessments',
+        help_text="Academic sections targeted for this assessment."
+    )
+    target_students = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name='individually_targeted_assessments',
+        help_text="Individual student accounts targeted for this assessment."
+    )
 
     class Meta:
         db_table = 'assessments'
@@ -124,6 +136,44 @@ class Assessment(UUIDModel, TimeStampedModel):
                         f"Cannot modify assessment in {original.status} status. Published assessments are immutable."
                     )
         super().save(*args, **kwargs)
+
+
+from django.db.models.signals import m2m_changed
+from django.dispatch import receiver
+
+
+@receiver(m2m_changed, sender=Assessment.target_sections.through)
+def enforce_assessment_target_sections_immutability(sender, instance, action, reverse, pk_set, **kwargs):
+    if action in ['pre_add', 'pre_remove', 'pre_clear']:
+        if not reverse:
+            if instance.status in [AssessmentStatus.PUBLISHED, AssessmentStatus.ARCHIVED]:
+                raise PermissionDenied(
+                    "Published or archived assessments cannot change their target audience. "
+                    "Use assignment management to add or revoke individual access."
+                )
+        else:
+            if pk_set and Assessment.objects.filter(id__in=pk_set, status__in=[AssessmentStatus.PUBLISHED, AssessmentStatus.ARCHIVED]).exists():
+                raise PermissionDenied(
+                    "Published or archived assessments cannot change their target audience. "
+                    "Use assignment management to add or revoke individual access."
+                )
+
+
+@receiver(m2m_changed, sender=Assessment.target_students.through)
+def enforce_assessment_target_students_immutability(sender, instance, action, reverse, pk_set, **kwargs):
+    if action in ['pre_add', 'pre_remove', 'pre_clear']:
+        if not reverse:
+            if instance.status in [AssessmentStatus.PUBLISHED, AssessmentStatus.ARCHIVED]:
+                raise PermissionDenied(
+                    "Published or archived assessments cannot change their target audience. "
+                    "Use assignment management to add or revoke individual access."
+                )
+        else:
+            if pk_set and Assessment.objects.filter(id__in=pk_set, status__in=[AssessmentStatus.PUBLISHED, AssessmentStatus.ARCHIVED]).exists():
+                raise PermissionDenied(
+                    "Published or archived assessments cannot change their target audience. "
+                    "Use assignment management to add or revoke individual access."
+                )
 
 
 class AssessmentAssignment(UUIDModel, TimeStampedModel):

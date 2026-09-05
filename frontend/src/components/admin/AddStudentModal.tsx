@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createStudent } from '../../api/students';
+import { fetchSections } from '../../api/sections';
+import { Section } from '../../types/section';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
-import { UserPlus, Mail, Hash, AlertCircle, X, Check, Copy, KeyRound, CheckCircle2 } from 'lucide-react';
+import { UserPlus, Mail, Hash, AlertCircle, X, Check, Copy, KeyRound, CheckCircle2, Layers } from 'lucide-react';
 import { StudentProfile } from '../../types/student';
 
 interface AddStudentModalProps {
@@ -18,6 +20,8 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
 }) => {
   const [email, setEmail] = useState('');
   const [rollNumber, setRollNumber] = useState('');
+  const [sectionId, setSectionId] = useState('');
+  const [sections, setSections] = useState<Section[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -27,6 +31,16 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
     temporaryPassword: string;
   } | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchSections({ active_only: true })
+        .then((res) => {
+          if (res.data) setSections(res.data);
+        })
+        .catch(() => {});
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -44,6 +58,7 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
       const res = await createStudent({
         email: email.trim(),
         roll_number: rollNumber.trim(),
+        section_id: sectionId ? sectionId : null,
       });
       if (res.data) {
         const student = res.data as any;
@@ -153,6 +168,32 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
                     className="w-full pl-9 pr-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-900 placeholder:text-slate-500 text-xs focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-medium"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-800">
+                  Academic Section (Optional)
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                    <Layers className="w-4 h-4" />
+                  </div>
+                  <select
+                    value={sectionId}
+                    onChange={(e) => setSectionId(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-purple-500 focus:border-purple-500 font-medium"
+                  >
+                    <option value="">None / Unassigned</option>
+                    {sections.map((sec) => (
+                      <option key={sec.id} value={sec.id}>
+                        {sec.code} - {sec.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Assign student to an academic section for cohort assessment targeting.
+                </p>
               </div>
 
               <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-200">

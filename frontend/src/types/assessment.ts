@@ -20,6 +20,40 @@ export interface AssessmentQuestionAdmin {
   created_at: string;
 }
 
+export interface AudienceSectionSummary {
+  id: string;
+  code: string;
+  name: string;
+  is_active: boolean;
+  student_count: number;
+}
+
+export interface AudienceStudentSummary {
+  id: string;
+  email: string;
+  display_name: string;
+  roll_number: string;
+  euid: string;
+  section: string | null;
+}
+
+export interface AudienceResolution {
+  section_student_count: number;
+  individual_student_count: number;
+  overlap_count: number;
+  total_eligible: number;
+  eligible_student_ids: string[];
+  sections: AudienceSectionSummary[];
+  additional_students: AudienceStudentSummary[];
+}
+
+export interface ConfigureAudiencePayload {
+  section_ids?: string[];
+  student_ids?: string[];
+  target_section_ids?: string[];
+  target_student_ids?: string[];
+}
+
 export interface AssessmentAdminItem {
   id: string;
   title: string;
@@ -35,6 +69,13 @@ export interface AssessmentAdminItem {
   result_visibility: ResultVisibility;
   question_count: number;
   assigned_count: number;
+  target_sections_summary?: string;
+  audience_summary?: {
+    total_eligible: number;
+    sections_count: number;
+    individual_students_count: number;
+    section_codes: string[];
+  };
   created_by_email?: string;
   published_at?: string | null;
   created_at: string;

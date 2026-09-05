@@ -248,10 +248,21 @@ export const AdminAssessmentsPage: React.FC = () => {
                             setSelectedAssessmentForAssign(a);
                             setIsAssignModalOpen(true);
                           }}
-                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 text-xs font-medium transition-colors"
+                          className="flex flex-col items-start gap-0.5 px-2.5 py-1.5 rounded-lg bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 text-xs font-medium transition-colors"
                         >
-                          <Users className="w-3.5 h-3.5 text-purple-600" />
-                          <span>{a.assigned_count} Assigned</span>
+                          <div className="flex items-center gap-1.5">
+                            <Users className="w-3.5 h-3.5 text-purple-600" />
+                            <span className="font-bold">{a.assigned_count} Assigned</span>
+                          </div>
+                          {a.target_sections_summary && a.target_sections_summary !== 'None' ? (
+                            <span className="text-[10px] text-purple-800 font-mono font-semibold truncate max-w-[150px]" title={a.target_sections_summary}>
+                              {a.target_sections_summary}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-500 font-mono">
+                              Direct / Custom
+                            </span>
+                          )}
                         </button>
                       </td>
                       <td className="px-4 py-3.5 text-right space-x-1 whitespace-nowrap">

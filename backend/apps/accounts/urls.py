@@ -22,6 +22,8 @@ from .views import (
     SecurityAuditLogView,
     SessionStatusView,
     SessionRefreshView,
+    AdminSectionListView,
+    AdminSectionDetailView,
 )
 
 app_name = 'accounts'
@@ -59,5 +61,9 @@ urlpatterns = [
     path('admin/students/<uuid:pk>/reset-password/', AdminStudentResetPasswordView.as_view(), name='admin-student-reset-password'),
     path('admin/students/import/preview/', AdminStudentImportPreviewView.as_view(), name='admin-student-import-preview'),
     path('admin/students/import/confirm/', AdminStudentImportConfirmView.as_view(), name='admin-student-import-confirm'),
+
+    # Admin Section Management endpoints
+    path('admin/sections/', AdminSectionListView.as_view(), name='admin-section-list'),
+    path('admin/sections/<uuid:pk>/', AdminSectionDetailView.as_view(), name='admin-section-detail'),
 ]
 

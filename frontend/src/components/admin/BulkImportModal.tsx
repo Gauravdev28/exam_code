@@ -43,7 +43,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
   };
 
   const handleDownloadSample = () => {
-    const csvContent = "data:text/csv;charset=utf-8,Roll Number,Email\nBETN1AI25001,student1@university.edu\nBETN1AI25002,student2@university.edu\nBETN1AI25003,student3@university.edu";
+    const csvContent = "data:text/csv;charset=utf-8,Roll Number,Email,Section\nBETN1AI25001,student1@university.edu,AIML-A\nBETN1AI25002,student2@university.edu,AIML-B\nBETN1AI25003,student3@university.edu,CSE-A";
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -84,6 +84,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
       .map((r) => ({
         email: r.email,
         roll_number: r.roll_number,
+        section: r.section,
       }));
 
     if (validStudents.length === 0) {
@@ -235,6 +236,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
                     <th className="p-2.5">Row</th>
                     <th className="p-2.5">Roll Number</th>
                     <th className="p-2.5">Email</th>
+                    <th className="p-2.5">Section</th>
                     <th className="p-2.5">EUID Preview</th>
                     <th className="p-2.5">Status</th>
                     <th className="p-2.5">Details</th>
@@ -246,6 +248,15 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
                       <td className="p-2.5 text-slate-400 font-mono">#{row.row_number}</td>
                       <td className="p-2.5 font-bold text-slate-900 font-mono">{row.roll_number}</td>
                       <td className="p-2.5 font-medium">{row.email}</td>
+                      <td className="p-2.5 font-mono">
+                        {row.section ? (
+                          <Badge variant="purple" size="sm" className="font-mono">
+                            {row.section}
+                          </Badge>
+                        ) : (
+                          <span className="text-slate-400 text-xs">—</span>
+                        )}
+                      </td>
                       <td className="p-2.5 text-emerald-700 font-mono font-semibold">{row.euid || 'N/A'}</td>
                       <td className="p-2.5">
                         <Badge

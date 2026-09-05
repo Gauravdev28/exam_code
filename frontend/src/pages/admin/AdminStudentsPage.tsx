@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { fetchStudents, disableStudent, enableStudent } from '../../api/students';
+import { fetchSections } from '../../api/sections';
+import { Section } from '../../types/section';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -7,6 +9,7 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { AddStudentModal } from '../../components/admin/AddStudentModal';
 import { BulkImportModal } from '../../components/admin/BulkImportModal';
 import { StudentDetailsModal } from '../../components/admin/StudentDetailsModal';
+import { SectionManagementModal } from '../../components/admin/SectionManagementModal';
 import {
   Users,
   UserPlus,
@@ -18,6 +21,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ShieldAlert,
+  Layers,
 } from 'lucide-react';
 import { StudentProfile } from '../../types/student';
 
@@ -28,14 +32,28 @@ export const AdminStudentsPage: React.FC = () => {
   const [pageSize] = useState<number>(15);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [sectionFilter, setSectionFilter] = useState<string>('all');
+  const [sectionsList, setSectionsList] = useState<Section[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Modals state
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isSectionsModalOpen, setIsSectionsModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<StudentProfile | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+
+  const loadSections = useCallback(async () => {
+    try {
+      const res = await fetchSections({ active_only: true });
+      if (res.data) {
+        setSectionsList(res.data);
+      }
+    } catch {
+      // Non-critical, graceful fallback
+    }
+  }, []);
 
   const loadStudents = useCallback(async () => {
     setIsLoading(true);
@@ -44,11 +62,14 @@ export const AdminStudentsPage: React.FC = () => {
       const activeParam =
         statusFilter === 'active' ? true : statusFilter === 'disabled' ? false : undefined;
 
+      const secParam = sectionFilter !== 'all' ? sectionFilter : undefined;
+
       const res = await fetchStudents({
         page: currentPage,
         page_size: pageSize,
         search: searchTerm.trim() || undefined,
         is_active: activeParam,
+        section: secParam,
       });
 
       if (res.data) {
@@ -60,7 +81,11 @@ export const AdminStudentsPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, pageSize, searchTerm, statusFilter]);
+  }, [currentPage, pageSize, searchTerm, statusFilter, sectionFilter]);
+
+  useEffect(() => {
+    loadSections();
+  }, [loadSections]);
 
   useEffect(() => {
     loadStudents();
@@ -99,6 +124,10 @@ export const AdminStudentsPage: React.FC = () => {
         description="Enroll students, generate EUIDs, oversee account states, and manage bulk CSV/Excel rosters."
         actions={
           <div className="flex items-center gap-3">
+            <Button variant="secondary" size="md" onClick={() => setIsSectionsModalOpen(true)}>
+              <Layers className="w-4 h-4 text-purple-600 mr-1.5" />
+              Manage Sections
+            </Button>
             <Button variant="secondary" size="md" onClick={() => setIsImportOpen(true)}>
               <UploadCloud className="w-4 h-4 text-purple-600 mr-1.5" />
               Bulk Import
@@ -127,7 +156,28 @@ export const AdminStudentsPage: React.FC = () => {
             />
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 text-xs text-slate-600">
+              <Layers className="w-3.5 h-3.5 text-slate-500" />
+              <span className="font-medium">Section:</span>
+              <select
+                value={sectionFilter}
+                onChange={(e) => {
+                  setSectionFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="bg-white border border-slate-300 text-slate-800 py-1.5 px-3 rounded-lg text-xs font-medium focus:ring-2 focus:ring-purple-500"
+              >
+                <option value="all">All Sections</option>
+                {sectionsList.map((sec) => (
+                  <option key={sec.id} value={sec.code}>
+                    {sec.code} - {sec.name}
+                  </option>
+                ))}
+                <option value="unassigned">Unassigned</option>
+              </select>
+            </div>
+
             <div className="flex items-center gap-2 text-xs text-slate-600">
               <Filter className="w-3.5 h-3.5" />
               <span className="font-medium">Status:</span>
@@ -181,6 +231,7 @@ export const AdminStudentsPage: React.FC = () => {
                 <tr>
                   <th className="p-3.5">Roll Number</th>
                   <th className="p-3.5">EUID</th>
+                  <th className="p-3.5">Section</th>
                   <th className="p-3.5">Email</th>
                   <th className="p-3.5">Status</th>
                   <th className="p-3.5">First Login</th>
@@ -193,6 +244,17 @@ export const AdminStudentsPage: React.FC = () => {
                   <tr key={student.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-3.5 font-bold text-slate-900">{student.roll_number}</td>
                     <td className="p-3.5 text-emerald-700 font-semibold">{student.euid}</td>
+                    <td className="p-3.5">
+                      {student.section ? (
+                        <Badge variant="purple" size="sm" className="font-mono font-bold">
+                          {student.section.code}
+                        </Badge>
+                      ) : (
+                        <span className="text-[11px] font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
+                          Unassigned
+                        </span>
+                      )}
+                    </td>
                     <td className="p-3.5 text-slate-800 font-sans">{student.email}</td>
                     <td className="p-3.5">
                       <Badge variant={student.is_active ? 'success' : 'danger'} size="sm">
@@ -294,6 +356,15 @@ export const AdminStudentsPage: React.FC = () => {
           loadStudents();
         }}
         onDelete={() => {
+          loadStudents();
+        }}
+      />
+
+      <SectionManagementModal
+        isOpen={isSectionsModalOpen}
+        onClose={() => setIsSectionsModalOpen(false)}
+        onSectionsChanged={() => {
+          loadSections();
           loadStudents();
         }}
       />

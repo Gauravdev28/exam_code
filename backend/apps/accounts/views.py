@@ -13,7 +13,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 from apps.core.responses import APIResponse
 from apps.core.pagination import StandardResultsSetPagination
-from .models import User, StudentProfile, Role, AuditLog
+from .models import User, StudentProfile, Role, AuditLog, Section
 from .serializers import (
     LoginSerializer,
     UserSerializer,
@@ -27,11 +27,14 @@ from .serializers import (
     UpdateAdministratorSerializer,
     ResetPasswordSerializer,
     AuditLogSerializer,
+    SectionSerializer,
+    CreateSectionSerializer,
+    UpdateSectionSerializer,
 )
 from apps.assessments.models import Assessment, AssessmentStatus
 from .permissions import IsAdmin, IsStudent, IsActiveUser, IsFirstLoginSatisfied
 from .throttling import LoginRateThrottle
-from .services import StudentService, ImportService, AuditService, AccountSecurityService
+from .services import StudentService, ImportService, AuditService, AccountSecurityService, SectionService
 
 # ==============================================================================
 # Authentication Views
@@ -218,7 +221,7 @@ class AdminStudentListView(APIView):
     pagination_class = StandardResultsSetPagination
 
     def get(self, request):
-        queryset = StudentProfile.objects.select_related('user').all()
+        queryset = StudentProfile.objects.select_related('user', 'section').all()
 
         # Search filter (email, roll_number, euid)
         search = request.query_params.get('search', '').strip()
@@ -228,6 +231,17 @@ class AdminStudentListView(APIView):
                 Q(euid__icontains=search) |
                 Q(user__email__icontains=search)
             )
+
+        # Section filter (by ID, code, or 'unassigned')
+        section_param = request.query_params.get('section', '').strip()
+        if section_param:
+            if section_param.lower() in ('unassigned', 'none', 'null'):
+                queryset = queryset.filter(section__isnull=True)
+            else:
+                queryset = queryset.filter(
+                    Q(section__id__iexact=section_param) |
+                    Q(section__code__iexact=section_param)
+                )
 
         # Status filter (active / disabled)
         status_filter = request.query_params.get('is_active')
@@ -257,9 +271,15 @@ class AdminStudentListView(APIView):
         serializer = CreateStudentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        section_id = serializer.validated_data.get('section_id')
+        sec_obj = None
+        if section_id:
+            sec_obj = get_object_or_404(Section, id=section_id)
+
         user, profile = StudentService.create_student(
             email=serializer.validated_data['email'],
             roll_number=serializer.validated_data['roll_number'],
+            section=sec_obj,
             actor=request.user,
             request=request
         )
@@ -280,7 +300,7 @@ class AdminStudentDetailView(APIView):
     def _get_student(self, pk):
         # Support lookup by either StudentProfile UUID or User UUID
         return get_object_or_404(
-            StudentProfile.objects.select_related('user'),
+            StudentProfile.objects.select_related('user', 'section'),
             Q(id=pk) | Q(user__id=pk)
         )
 
@@ -296,9 +316,19 @@ class AdminStudentDetailView(APIView):
         serializer = UpdateStudentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        email = serializer.validated_data.get('email')
+        update_section = 'section_id' in serializer.validated_data
+        sec_obj = None
+        if update_section:
+            section_id = serializer.validated_data.get('section_id')
+            if section_id:
+                sec_obj = get_object_or_404(Section, id=section_id)
+
         updated_profile = StudentService.update_student(
             student_profile=profile,
-            email=serializer.validated_data.get('email'),
+            email=email,
+            section=sec_obj,
+            update_section=update_section,
             actor=request.user,
             request=request
         )
@@ -315,6 +345,93 @@ class AdminStudentDetailView(APIView):
         StudentService.delete_student(profile, actor=request.user, request=request)
         return APIResponse(
             message=f"Student account {roll} ({euid}) successfully deleted.",
+            status_code=status.HTTP_200_OK
+        )
+
+
+# ==============================================================================
+# Administrator Section Management Views
+# ==============================================================================
+
+class AdminSectionListView(APIView):
+    """
+    List and Create Academic Sections.
+    GET /api/v1/admin/sections/
+    POST /api/v1/admin/sections/
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        active_only = request.query_params.get('active_only', '').lower() in ('true', '1')
+        sections = SectionService.get_sections_with_counts(active_only=active_only)
+        search = request.query_params.get('search', '').strip()
+        if search:
+            sections = sections.filter(Q(code__icontains=search) | Q(name__icontains=search))
+        serializer = SectionSerializer(sections, many=True)
+        return APIResponse(data=serializer.data)
+
+    def post(self, request):
+        serializer = CreateSectionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        section = SectionService.create_section(
+            code=serializer.validated_data['code'],
+            name=serializer.validated_data['name'],
+            is_active=serializer.validated_data.get('is_active', True),
+            actor=request.user,
+            request=request
+        )
+        section_with_count = SectionService.get_sections_with_counts().filter(id=section.id).first()
+        return APIResponse(
+            data=SectionSerializer(section_with_count or section).data,
+            message=f"Section '{section.code}' created successfully.",
+            status_code=status.HTTP_201_CREATED
+        )
+
+
+class AdminSectionDetailView(APIView):
+    """
+    Retrieve, Update, and Safe-Delete Academic Section.
+    GET /api/v1/admin/sections/<uuid:pk>/
+    PATCH /api/v1/admin/sections/<uuid:pk>/
+    DELETE /api/v1/admin/sections/<uuid:pk>/
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def _get_section(self, pk):
+        section = SectionService.get_sections_with_counts().filter(id=pk).first()
+        if not section:
+            section = get_object_or_404(Section, id=pk)
+        return section
+
+    def get(self, request, pk):
+        section = self._get_section(pk)
+        return APIResponse(data=SectionSerializer(section).data)
+
+    def patch(self, request, pk):
+        section = get_object_or_404(Section, id=pk)
+        serializer = UpdateSectionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        updated_section = SectionService.update_section(
+            section=section,
+            name=serializer.validated_data.get('name'),
+            is_active=serializer.validated_data.get('is_active'),
+            actor=request.user,
+            request=request
+        )
+        section_with_count = SectionService.get_sections_with_counts().filter(id=updated_section.id).first()
+        return APIResponse(
+            data=SectionSerializer(section_with_count or updated_section).data,
+            message=f"Section '{updated_section.code}' updated successfully."
+        )
+
+    def delete(self, request, pk):
+        section = get_object_or_404(Section, id=pk)
+        code = section.code
+        SectionService.delete_or_deactivate_section(section=section, actor=request.user, request=request)
+        return APIResponse(
+            message=f"Section '{code}' successfully deleted.",
             status_code=status.HTTP_200_OK
         )
 

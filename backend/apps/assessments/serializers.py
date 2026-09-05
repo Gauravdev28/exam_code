@@ -52,6 +52,7 @@ class AssessmentQuestionAdminSerializer(serializers.ModelSerializer):
 class AssessmentAdminListSerializer(serializers.ModelSerializer):
     question_count = serializers.SerializerMethodField()
     assigned_count = serializers.SerializerMethodField()
+    target_sections_summary = serializers.SerializerMethodField()
     created_by_email = serializers.EmailField(source='created_by.email', read_only=True)
 
     class Meta:
@@ -72,6 +73,7 @@ class AssessmentAdminListSerializer(serializers.ModelSerializer):
             'result_visibility',
             'question_count',
             'assigned_count',
+            'target_sections_summary',
             'created_by_email',
             'published_at',
             'created_at',
@@ -84,11 +86,16 @@ class AssessmentAdminListSerializer(serializers.ModelSerializer):
     def get_assigned_count(self, obj: Assessment):
         return obj.assignments.filter(status=AssignmentStatus.ASSIGNED).count()
 
+    def get_target_sections_summary(self, obj: Assessment):
+        return list(obj.target_sections.values_list('code', flat=True))
+
 
 class AssessmentAdminDetailSerializer(serializers.ModelSerializer):
     assessment_questions = AssessmentQuestionAdminSerializer(many=True, read_only=True)
     created_by_email = serializers.EmailField(source='created_by.email', read_only=True)
     assigned_count = serializers.SerializerMethodField()
+    target_sections_summary = serializers.SerializerMethodField()
+    audience_summary = serializers.SerializerMethodField()
 
     class Meta:
         model = Assessment
@@ -112,12 +119,41 @@ class AssessmentAdminDetailSerializer(serializers.ModelSerializer):
             'published_at',
             'assessment_questions',
             'assigned_count',
+            'target_sections_summary',
+            'audience_summary',
             'created_at',
             'updated_at',
         ]
 
     def get_assigned_count(self, obj: Assessment):
         return obj.assignments.filter(status=AssignmentStatus.ASSIGNED).count()
+
+    def get_target_sections_summary(self, obj: Assessment):
+        return list(obj.target_sections.values_list('code', flat=True))
+
+    def get_audience_summary(self, obj: Assessment):
+        assigned_qs = obj.assignments.all()
+        return {
+            "sections": list(obj.target_sections.values_list('code', flat=True)),
+            "individual_count": obj.target_students.count(),
+            "total_assigned": assigned_qs.count(),
+            "active_assigned": assigned_qs.filter(status=AssignmentStatus.ASSIGNED).count(),
+            "revoked": assigned_qs.filter(status=AssignmentStatus.REVOKED).count(),
+        }
+
+
+class ConfigureAudienceSerializer(serializers.Serializer):
+    section_ids = serializers.ListField(child=serializers.UUIDField(), required=False, default=list)
+    student_ids = serializers.ListField(child=serializers.UUIDField(), required=False, default=list)
+    target_section_ids = serializers.ListField(child=serializers.UUIDField(), required=False, default=list)
+    target_student_ids = serializers.ListField(child=serializers.UUIDField(), required=False, default=list)
+
+    def validate(self, attrs):
+        if 'target_section_ids' in attrs and not attrs.get('section_ids'):
+            attrs['section_ids'] = attrs['target_section_ids']
+        if 'target_student_ids' in attrs and not attrs.get('student_ids'):
+            attrs['student_ids'] = attrs['target_student_ids']
+        return attrs
 
 
 class CreateAssessmentSerializer(serializers.Serializer):

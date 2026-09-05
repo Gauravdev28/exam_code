@@ -7,6 +7,8 @@ import {
   UpdateAssessmentPayload,
   AddAssessmentQuestionPayload,
   AssessmentAssignmentItem,
+  AudienceResolution,
+  ConfigureAudiencePayload,
   StudentAssessmentItem,
   StudentAttemptDetail,
   SaveAnswerPayload,
@@ -78,6 +80,37 @@ export const archiveAssessment = async (
   id: string
 ): Promise<APIResponse<AssessmentAdminDetail>> => {
   const res = await apiClient.post<APIResponse<AssessmentAdminDetail>>(`/admin/assessments/${id}/archive/`);
+  return res.data;
+};
+
+export const fetchAssessmentAudience = async (
+  assessmentId: string
+): Promise<APIResponse<AudienceResolution>> => {
+  const res = await apiClient.get<APIResponse<AudienceResolution>>(
+    `/admin/assessments/${assessmentId}/audience/`
+  );
+  return res.data;
+};
+
+export const configureAssessmentAudience = async (
+  assessmentId: string,
+  payload: ConfigureAudiencePayload
+): Promise<APIResponse<AudienceResolution>> => {
+  const res = await apiClient.post<APIResponse<AudienceResolution>>(
+    `/admin/assessments/${assessmentId}/audience/`,
+    payload
+  );
+  return res.data;
+};
+
+export const previewAssessmentAudience = async (
+  assessmentId: string,
+  payload: ConfigureAudiencePayload
+): Promise<APIResponse<AudienceResolution>> => {
+  const res = await apiClient.post<APIResponse<AudienceResolution>>(
+    `/admin/assessments/${assessmentId}/audience/preview/`,
+    payload
+  );
   return res.data;
 };
 

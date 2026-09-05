@@ -2,16 +2,61 @@ from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from rest_framework.exceptions import AuthenticationFailed, ValidationError
-from .models import User, StudentProfile, Role, AuditLog
+from .models import User, StudentProfile, Role, AuditLog, Section
+
+
+class SectionSerializer(serializers.ModelSerializer):
+    """
+    Representation of an Academic Section entity.
+    """
+    student_count = serializers.IntegerField(read_only=True, default=0)
+
+    class Meta:
+        model = Section
+        fields = [
+            'id',
+            'code',
+            'name',
+            'is_active',
+            'student_count',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class CreateSectionSerializer(serializers.Serializer):
+    """
+    Schema for creating a new Academic Section.
+    """
+    code = serializers.CharField(required=True, max_length=32)
+    name = serializers.CharField(required=True, max_length=128)
+    is_active = serializers.BooleanField(required=False, default=True)
+
+    def validate_code(self, value):
+        from .services import SectionService
+        return SectionService.normalize_code(value)
+
+
+class UpdateSectionSerializer(serializers.Serializer):
+    """
+    Schema for updating an Academic Section.
+    """
+    name = serializers.CharField(required=False, max_length=128)
+    is_active = serializers.BooleanField(required=False)
+
 
 class StudentProfileSerializer(serializers.ModelSerializer):
     """
     Representation of the student profile entity.
     """
+    section = SectionSerializer(read_only=True)
+
     class Meta:
         model = StudentProfile
         fields = [
             'id',
+            'section',
             'roll_number',
             'euid',
             'first_login_required',
@@ -256,6 +301,8 @@ class StudentDetailSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source='user.email')
     is_active = serializers.BooleanField(source='user.is_active')
     role = serializers.CharField(source='user.role', read_only=True)
+    section = SectionSerializer(read_only=True)
+    section_id = serializers.UUIDField(source='section.id', read_only=True, allow_null=True)
 
     class Meta:
         model = StudentProfile
@@ -264,6 +311,8 @@ class StudentDetailSerializer(serializers.ModelSerializer):
             'user_id',
             'email',
             'role',
+            'section',
+            'section_id',
             'roll_number',
             'euid',
             'is_active',
@@ -280,15 +329,17 @@ class CreateStudentSerializer(serializers.Serializer):
     """
     email = serializers.EmailField(required=True)
     roll_number = serializers.CharField(required=True, max_length=64)
+    section_id = serializers.UUIDField(required=False, allow_null=True, default=None)
 
 
 class UpdateStudentSerializer(serializers.Serializer):
     """
     Serializer for updating student profile.
-    Only email is permitted to be modified.
+    Email and academic section classification may be modified by authorized administrators.
     Roll number, EUID, role, and internal fields are strictly immutable.
     """
-    email = serializers.EmailField(required=True)
+    email = serializers.EmailField(required=False)
+    section_id = serializers.UUIDField(required=False, allow_null=True, default=None)
 
     def validate(self, attrs):
         # Explicitly reject attempts to modify immutable identity or server-controlled fields
@@ -314,12 +365,21 @@ class UpdateStudentSerializer(serializers.Serializer):
         return attrs
 
 
+class BulkImportStudentItemSerializer(serializers.Serializer):
+    """
+    Schema for individual student row in bulk import payload.
+    """
+    roll_number = serializers.CharField(required=True, max_length=64)
+    email = serializers.EmailField(required=True)
+    section = serializers.CharField(required=False, allow_blank=True, default="")
+
+
 class BulkImportConfirmSerializer(serializers.Serializer):
     """
     Payload containing verified student rows to create in batch.
     """
     filename = serializers.CharField(required=False, allow_blank=True, default="import.csv")
-    students = CreateStudentSerializer(many=True, required=True)
+    students = BulkImportStudentItemSerializer(many=True, required=True)
 
 
 class ChangePasswordSerializer(serializers.Serializer):

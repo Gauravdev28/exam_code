@@ -18,7 +18,7 @@ from .models import (
     AttemptStatus,
     AttemptAnswer,
 )
-from .services import AssessmentService, AttemptService, AttemptTimerService
+from .services import AssessmentService, AttemptService, AttemptTimerService, AssessmentAudienceService
 from .serializers import (
     AssessmentAdminListSerializer,
     AssessmentAdminDetailSerializer,
@@ -30,6 +30,7 @@ from .serializers import (
     StudentAssessmentListSerializer,
     StudentAttemptAnswerSerializer,
     SaveAnswerPayloadSerializer,
+    ConfigureAudienceSerializer,
 )
 
 
@@ -183,18 +184,80 @@ class AdminAssessmentDetailView(APIView):
 
 class AdminAssessmentPublishView(APIView):
     """
-    Validate points invariant, freeze AssessmentSnapshot, and publish assessment.
+    Validate points invariant, resolve audience, create assignments, freeze AssessmentSnapshot, and publish assessment.
     POST /api/v1/admin/assessments/<id>/publish/
     """
     permission_classes = [IsAuthenticated, IsActiveUser, IsAdmin]
 
     def post(self, request, pk):
         assessment = get_object_or_404(Assessment, id=pk)
-        published = AssessmentService.publish_assessment(assessment=assessment, actor=request.user, request=request)
+        published = AssessmentService.publish_assessment(
+            assessment=assessment,
+            actor=request.user,
+            request=request,
+            enforce_audience=True
+        )
         return APIResponse(
             data=AssessmentAdminDetailSerializer(published).data,
             message="Assessment published successfully and snapshot permanently locked."
         )
+
+
+class AdminAssessmentAudienceView(APIView):
+    """
+    Retrieve or configure audience targeting for a DRAFT assessment.
+    GET /api/v1/admin/assessments/<id>/audience/
+    POST /api/v1/admin/assessments/<id>/audience/
+    """
+    permission_classes = [IsAuthenticated, IsActiveUser, IsAdmin]
+
+    def get(self, request, pk):
+        assessment = get_object_or_404(Assessment, id=pk)
+        resolved = AssessmentAudienceService.resolve_audience(assessment)
+        return APIResponse(data=resolved)
+
+    def post(self, request, pk):
+        assessment = get_object_or_404(Assessment, id=pk)
+        serializer = ConfigureAudienceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        section_ids = [str(sid) for sid in serializer.validated_data.get('section_ids', [])]
+        student_ids = [str(uid) for uid in serializer.validated_data.get('student_ids', [])]
+
+        resolved = AssessmentAudienceService.configure_audience(
+            assessment=assessment,
+            section_ids=section_ids,
+            student_ids=student_ids,
+            actor=request.user,
+            request=request
+        )
+        return APIResponse(
+            data=resolved,
+            message="Assessment target audience updated successfully."
+        )
+
+
+class AdminAssessmentAudiencePreviewView(APIView):
+    """
+    Pure preview of resolved audience without mutating draft state or creating assignments.
+    POST /api/v1/admin/assessments/<id>/audience/preview/
+    """
+    permission_classes = [IsAuthenticated, IsActiveUser, IsAdmin]
+
+    def post(self, request, pk):
+        assessment = get_object_or_404(Assessment, id=pk)
+        serializer = ConfigureAudienceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        section_ids = [str(sid) for sid in serializer.validated_data.get('section_ids', [])]
+        student_ids = [str(uid) for uid in serializer.validated_data.get('student_ids', [])]
+
+        resolved = AssessmentAudienceService.resolve_audience(
+            assessment=assessment,
+            section_ids=section_ids,
+            student_ids=student_ids
+        )
+        return APIResponse(data=resolved)
 
 
 class AdminAssessmentArchiveView(APIView):

@@ -1,3 +1,5 @@
+import { Section } from './section';
+
 export interface StudentProfile {
   id: string;
   user_id: string;
@@ -7,6 +9,7 @@ export interface StudentProfile {
   euid: string;
   is_active: boolean;
   first_login_required: boolean;
+  section?: Section | null;
   created_at: string;
   updated_at: string;
 }
@@ -14,17 +17,21 @@ export interface StudentProfile {
 export interface CreateStudentPayload {
   email: string;
   roll_number: string;
+  section_id?: string | null;
+  section?: string | null;
 }
 
 export interface UpdateStudentPayload {
   email?: string;
   roll_number?: string;
+  section_id?: string | null;
 }
 
 export interface ImportPreviewRow {
   row_number: number;
   roll_number: string;
   email: string;
+  section?: string;
   euid: string;
   status: 'VALID' | 'INVALID' | 'DUPLICATE';
   errors: string[];
@@ -40,7 +47,7 @@ export interface ImportPreviewReport {
 
 export interface ImportConfirmPayload {
   filename: string;
-  students: CreateStudentPayload[];
+  students: Array<CreateStudentPayload & { section?: string }>;
 }
 
 export interface ImportConfirmResult {

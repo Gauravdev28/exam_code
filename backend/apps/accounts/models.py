@@ -243,6 +243,56 @@ class AdminSequence(UUIDModel, TimeStampedModel):
         return f"AdminSequence(last={self.last_sequence})"
 
 
+class Section(UUIDModel, TimeStampedModel):
+    """
+    Academic Section entity for student classification and assessment targeting.
+    Normalized code, human-readable name, active state, and audit-safe timestamps.
+    """
+    code = models.CharField(
+        max_length=32,
+        unique=True,
+        db_index=True,
+        verbose_name="Section Code",
+        help_text="Unique normalized academic section code (e.g. AIML-A, CSE-B)."
+    )
+    name = models.CharField(
+        max_length=128,
+        verbose_name="Section Name",
+        help_text="Human-readable section title (e.g. Artificial Intelligence & Machine Learning Section A)."
+    )
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+        verbose_name="Is Active",
+        help_text="Designates whether this section is active for new student enrollment and assessment targeting."
+    )
+
+    class Meta:
+        verbose_name = 'Section'
+        verbose_name_plural = 'Sections'
+        ordering = ['code']
+        indexes = [
+            models.Index(fields=['code', 'is_active']),
+        ]
+
+    def __str__(self):
+        return f"{self.code} ({self.name})"
+
+    def clean(self):
+        super().clean()
+        if self.code:
+            self.code = self.code.strip().upper()
+        if self.name:
+            self.name = self.name.strip()
+
+    def save(self, *args, **kwargs):
+        if self.code:
+            self.code = self.code.strip().upper()
+        if self.name:
+            self.name = self.name.strip()
+        super().save(*args, **kwargs)
+
+
 class StudentProfile(UUIDModel, TimeStampedModel):
     """
     Student-specific profile containing official academic roll number,
@@ -253,6 +303,15 @@ class StudentProfile(UUIDModel, TimeStampedModel):
         on_delete=models.CASCADE,
         related_name='student_profile',
         verbose_name="Associated User"
+    )
+    section = models.ForeignKey(
+        Section,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='students',
+        verbose_name="Academic Section",
+        help_text="Academic section classification for student."
     )
     roll_number = models.CharField(
         max_length=64,
@@ -283,6 +342,7 @@ class StudentProfile(UUIDModel, TimeStampedModel):
             models.Index(fields=['roll_number']),
             models.Index(fields=['euid']),
             models.Index(fields=['first_login_required']),
+            models.Index(fields=['section']),
         ]
 
     def __str__(self):

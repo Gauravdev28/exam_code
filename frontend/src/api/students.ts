@@ -13,6 +13,7 @@ import { User } from '../types/auth';
 
 export interface StudentFilterParams {
   search?: string;
+  section?: string;
   is_active?: boolean;
   first_login_required?: boolean;
   ordering?: string;

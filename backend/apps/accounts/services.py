@@ -14,7 +14,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.sessions.models import Session
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-from .models import User, StudentProfile, AuditLog, Role, AdminSequence
+from .models import User, StudentProfile, AuditLog, Role, AdminSequence, Section
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +121,147 @@ class AuditService:
         )
 
 
+class SectionService:
+    """
+    Authoritative domain service managing Academic Section entities, normalization,
+    race-safe uniqueness, student counts, and safe historical deactivation.
+    """
+    @staticmethod
+    def normalize_code(code: str) -> str:
+        if not code or not str(code).strip():
+            raise DRFValidationError({"code": "Section code cannot be empty."})
+        clean = str(code).strip().upper()
+        normalized = re.sub(r'[^A-Z0-9_-]', '', clean)
+        if not normalized:
+            raise DRFValidationError({"code": "Section code contains no valid characters."})
+        return normalized
+
+    @classmethod
+    def create_section(
+        cls,
+        code: str,
+        name: str,
+        is_active: bool = True,
+        actor: Optional[User] = None,
+        request=None
+    ) -> Section:
+        norm_code = cls.normalize_code(code)
+        clean_name = str(name).strip() if name else ""
+        if not clean_name:
+            raise DRFValidationError({"name": "Section name cannot be empty."})
+
+        if Section.objects.filter(code=norm_code).exists():
+            raise DRFValidationError({"code": f"A section with code '{norm_code}' already exists."})
+
+        try:
+            with transaction.atomic():
+                section = Section.objects.create(
+                    code=norm_code,
+                    name=clean_name,
+                    is_active=is_active
+                )
+                AuditService.log(
+                    action="SECTION_CREATED",
+                    actor=actor,
+                    target_type="Section",
+                    target_id=str(section.id),
+                    metadata={
+                        "code": section.code,
+                        "name": section.name,
+                        "is_active": section.is_active
+                    },
+                    request=request
+                )
+                return section
+        except IntegrityError:
+            raise DRFValidationError({"code": f"A section with code '{norm_code}' already exists."})
+
+    @classmethod
+    def update_section(
+        cls,
+        section: Section,
+        name: Optional[str] = None,
+        is_active: Optional[bool] = None,
+        actor: Optional[User] = None,
+        request=None
+    ) -> Section:
+        update_fields = ['updated_at']
+        old_active = section.is_active
+
+        if name is not None:
+            clean_name = str(name).strip()
+            if not clean_name:
+                raise DRFValidationError({"name": "Section name cannot be empty."})
+            section.name = clean_name
+            update_fields.append('name')
+
+        if is_active is not None and is_active != old_active:
+            section.is_active = is_active
+            update_fields.append('is_active')
+
+        section.save(update_fields=update_fields)
+
+        action = "SECTION_UPDATED"
+        if is_active is not None and is_active != old_active:
+            action = "SECTION_ACTIVATED" if is_active else "SECTION_DEACTIVATED"
+
+        AuditService.log(
+            action=action,
+            actor=actor,
+            target_type="Section",
+            target_id=str(section.id),
+            metadata={
+                "code": section.code,
+                "name": section.name,
+                "is_active": section.is_active
+            },
+            request=request
+        )
+        return section
+
+    @classmethod
+    def delete_or_deactivate_section(
+        cls,
+        section: Section,
+        actor: Optional[User] = None,
+        request=None
+    ) -> None:
+        """
+        Safe deletion check: Rejects deletion if students or assessment targeting references exist,
+        recommending deactivation instead.
+        """
+        has_students = section.students.exists()
+        has_assessments = section.targeted_assessments.exists()
+
+        if has_students or has_assessments:
+            raise DRFValidationError({
+                "detail": "This section has existing dependencies. Deactivate it instead of deleting it."
+            })
+
+        sec_id = str(section.id)
+        sec_code = section.code
+        with transaction.atomic():
+            section.delete()
+            AuditService.log(
+                action="SECTION_DELETED",
+                actor=actor,
+                target_type="Section",
+                target_id=sec_id,
+                metadata={"code": sec_code},
+                request=request
+            )
+
+    @classmethod
+    def get_sections_with_counts(cls, active_only: bool = False):
+        from django.db.models import Count, Q
+        qs = Section.objects.annotate(
+            student_count=Count('students', filter=Q(students__user__is_active=True))
+        ).order_by('code')
+        if active_only:
+            qs = qs.filter(is_active=True)
+        return qs
+
+
 class StudentService:
     """
     Domain service orchestrating student account lifecycle, verification, and creation.
@@ -129,11 +270,15 @@ class StudentService:
     def create_student(
         email: str,
         roll_number: str,
+        section: Optional[Section] = None,
         actor: Optional[User] = None,
         request=None
     ) -> Tuple[User, StudentProfile]:
         clean_email = email.strip().lower()
         clean_roll = EUIDService.normalize_roll_number(roll_number)
+
+        if section is not None and not section.is_active:
+            raise DRFValidationError({"section": f"Cannot assign inactive section '{section.code}'."})
 
         try:
             validate_email(clean_email)
@@ -161,6 +306,7 @@ class StudentService:
 
                 profile = StudentProfile.objects.create(
                     user=user,
+                    section=section,
                     roll_number=clean_roll,
                     euid=euid,
                     first_login_required=True
@@ -170,11 +316,12 @@ class StudentService:
                     action="STUDENT_CREATED",
                     actor=actor,
                     target_type="StudentProfile",
-                    target_id=profile.id,
+                    target_id=str(profile.id),
                     metadata={
                         "email": user.email,
                         "roll_number": profile.roll_number,
-                        "euid": profile.euid
+                        "euid": profile.euid,
+                        "section": section.code if section else None
                     },
                     request=request
                 )
@@ -184,38 +331,87 @@ class StudentService:
         return user, profile
 
     @staticmethod
+    def change_student_section(
+        student_profile: StudentProfile,
+        new_section: Optional[Section],
+        actor: Optional[User] = None,
+        request=None
+    ) -> StudentProfile:
+        """
+        Classify/reclassify a student into a new academic section.
+        Section is purely a classification mechanism:
+        Existing assessment assignments are NEVER modified, revoked, or automatically granted.
+        """
+        if hasattr(student_profile, 'student_profile'):
+            student_profile = student_profile.student_profile
+
+        if new_section is not None and not new_section.is_active:
+            raise DRFValidationError({"section": f"Cannot assign inactive section '{new_section.code}'."})
+
+        old_section_code = student_profile.section.code if student_profile.section else None
+        new_section_code = new_section.code if new_section else None
+
+        if old_section_code == new_section_code:
+            return student_profile
+
+        student_profile.section = new_section
+        student_profile.save(update_fields=['section', 'updated_at'])
+
+        AuditService.log(
+            action="STUDENT_SECTION_CHANGED",
+            actor=actor,
+            target_type="StudentProfile",
+            target_id=str(student_profile.id),
+            metadata={
+                "actor_name": actor.display_name if actor else "SYSTEM",
+                "target_identity": student_profile.euid,
+                "roll_number": student_profile.roll_number,
+                "old_section": old_section_code,
+                "new_section": new_section_code
+            },
+            request=request
+        )
+        return student_profile
+
+    @staticmethod
     def update_student(
         student_profile: StudentProfile,
         email: Optional[str] = None,
+        section: Optional[Section] = None,
+        update_section: bool = False,
         actor: Optional[User] = None,
         request=None
     ) -> StudentProfile:
         user = student_profile.user
-        if not email:
-            return student_profile
+        if email:
+            clean_email = email.strip().lower()
+            if clean_email != user.email:
+                try:
+                    validate_email(clean_email)
+                except DjangoValidationError:
+                    raise DRFValidationError({"email": "Enter a valid email address."})
 
-        clean_email = email.strip().lower()
-        if clean_email == user.email:
-            return student_profile
+                if User.objects.filter(email=clean_email).exclude(id=user.id).exists():
+                    raise DRFValidationError({"email": "Email is already taken by another account."})
 
-        try:
-            validate_email(clean_email)
-        except DjangoValidationError:
-            raise DRFValidationError({"email": "Enter a valid email address."})
+                with transaction.atomic():
+                    user.email = clean_email
+                    user.save(update_fields=['email', 'updated_at'])
 
-        if User.objects.filter(email=clean_email).exclude(id=user.id).exists():
-            raise DRFValidationError({"email": "Email is already taken by another account."})
+                    AuditService.log(
+                        action="STUDENT_UPDATED",
+                        actor=actor,
+                        target_type="StudentProfile",
+                        target_id=str(student_profile.id),
+                        metadata={"email": clean_email},
+                        request=request
+                    )
 
-        with transaction.atomic():
-            user.email = clean_email
-            user.save(update_fields=['email', 'updated_at'])
-
-            AuditService.log(
-                action="STUDENT_UPDATED",
+        if update_section:
+            StudentService.change_student_section(
+                student_profile=student_profile,
+                new_section=section,
                 actor=actor,
-                target_type="StudentProfile",
-                target_id=student_profile.id,
-                metadata={"email": clean_email},
                 request=request
             )
 
@@ -354,14 +550,22 @@ class ImportService:
                 if not header_row:
                     raise DRFValidationError("The uploaded CSV file is empty.")
 
-                roll_idx, email_idx = cls._detect_columns(header_row)
+                roll_idx, email_idx, section_idx = cls._detect_columns(header_row)
 
                 for line_num, row in enumerate(reader, start=2):
                     if not any(cell.strip() for cell in row):
                         continue  # Skip blank lines
                     roll = row[roll_idx].strip() if len(row) > roll_idx else ""
                     email = row[email_idx].strip() if len(row) > email_idx else ""
-                    rows.append({"row_number": line_num, "roll_number": roll, "email": email})
+                    has_sec = (section_idx != -1)
+                    section = row[section_idx].strip() if has_sec and len(row) > section_idx else ""
+                    rows.append({
+                        "row_number": line_num,
+                        "roll_number": roll,
+                        "email": email,
+                        "section": section,
+                        "has_section_column": has_sec
+                    })
 
             except UnicodeDecodeError:
                 raise DRFValidationError("Failed to decode CSV file. Please ensure it is saved in UTF-8 encoding.")
@@ -380,14 +584,22 @@ class ImportService:
                     raise DRFValidationError("The uploaded Excel workbook is empty.")
 
                 header_list = [str(col).strip() if col is not None else "" for col in header_row]
-                roll_idx, email_idx = cls._detect_columns(header_list)
+                roll_idx, email_idx, section_idx = cls._detect_columns(header_list)
 
                 for line_num, row in enumerate(iter_rows, start=2):
                     if not row or not any(str(cell).strip() for cell in row if cell is not None):
                         continue
                     roll = str(row[roll_idx]).strip() if len(row) > roll_idx and row[roll_idx] is not None else ""
                     email = str(row[email_idx]).strip() if len(row) > email_idx and row[email_idx] is not None else ""
-                    rows.append({"row_number": line_num, "roll_number": roll, "email": email})
+                    has_sec = (section_idx != -1)
+                    section = str(row[section_idx]).strip() if has_sec and len(row) > section_idx and row[section_idx] is not None else ""
+                    rows.append({
+                        "row_number": line_num,
+                        "roll_number": roll,
+                        "email": email,
+                        "section": section,
+                        "has_section_column": has_sec
+                    })
 
             except Exception as e:
                 if isinstance(e, DRFValidationError):
@@ -400,12 +612,14 @@ class ImportService:
         return rows
 
     @staticmethod
-    def _detect_columns(header_row: List[str]) -> Tuple[int, int]:
+    def _detect_columns(header_row: List[str]) -> Tuple[int, int, int]:
         roll_aliases = ['roll number', 'roll_number', 'roll', 'rollno', 'roll_no', 'student roll number', 'id']
         email_aliases = ['email', 'email address', 'email_address', 'student email', 'mail']
+        section_aliases = ['section', 'section_code', 'section code', 'sec', 'class section', 'class_section']
 
         roll_idx = -1
         email_idx = -1
+        section_idx = -1
 
         for idx, col in enumerate(header_row):
             col_clean = str(col).strip().lower()
@@ -413,24 +627,26 @@ class ImportService:
                 roll_idx = idx
             elif col_clean in email_aliases and email_idx == -1:
                 email_idx = idx
+            elif col_clean in section_aliases and section_idx == -1:
+                section_idx = idx
 
         if roll_idx == -1 or email_idx == -1:
             raise DRFValidationError(
-                "Required column headers not found. Expected headers: 'Roll Number' and 'Email'."
+                "Required column headers not found. Expected headers: 'Roll Number' and 'Email' (optional 'Section')."
             )
 
-        return roll_idx, email_idx
+        return roll_idx, email_idx, section_idx
 
     @classmethod
     def validate_preview(cls, rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Validates parsed rows independently, checks database uniqueness and in-file duplicates,
-        and generates an interactive preview report.
+        Validates parsed rows independently, checks database uniqueness, section existence/state,
+        and generates an interactive preview report with actionable row errors.
         """
         seen_rolls: Dict[str, int] = {}
         seen_emails: Dict[str, int] = {}
 
-        # Collect non-empty rolls & emails for single-query bulk DB existence check
+        # Collect candidate identifiers for single-query bulk DB lookup
         candidate_rolls = set()
         candidate_emails = set()
 
@@ -445,6 +661,9 @@ class ImportService:
         existing_rolls = set(StudentProfile.objects.filter(roll_number__in=candidate_rolls).values_list('roll_number', flat=True))
         existing_emails = set(User.objects.filter(email__in=candidate_emails).values_list('email', flat=True))
 
+        # Fetch all registered sections
+        all_sections = {s.code: s for s in Section.objects.all()}
+
         preview_rows = []
         valid_count = 0
         invalid_count = 0
@@ -454,10 +673,13 @@ class ImportService:
             row_num = r.get('row_number', 0)
             raw_roll = r.get('roll_number', '').strip()
             raw_email = r.get('email', '').strip()
+            raw_sec = r.get('section', '').strip()
+            has_section_column = r.get('has_section_column', False)
             errors = []
             status_tag = "VALID"
 
             # 1. Roll Number Validation
+            norm_roll = ""
             if not raw_roll:
                 errors.append("Roll number is missing.")
             else:
@@ -476,6 +698,7 @@ class ImportService:
                     errors.append(str(ve.detail[0] if isinstance(ve.detail, list) else ve.detail))
 
             # 2. Email Validation
+            clean_email = ""
             if not raw_email:
                 errors.append("Email address is missing.")
             else:
@@ -493,6 +716,28 @@ class ImportService:
                 except DjangoValidationError:
                     errors.append("Invalid email address format.")
 
+            # 3. Section Validation
+            if has_section_column:
+                # Modern import with Section column: section is strictly required for each row
+                if not raw_sec:
+                    errors.append("Section is required")
+                else:
+                    norm_sec = raw_sec.upper()
+                    sec_obj = all_sections.get(norm_sec)
+                    if not sec_obj:
+                        errors.append(f"Unknown section: {raw_sec}")
+                    elif not sec_obj.is_active:
+                        errors.append(f"Section is inactive: {raw_sec}")
+            else:
+                # Legacy import without section column: allowed for compatibility
+                if raw_sec:
+                    norm_sec = raw_sec.upper()
+                    sec_obj = all_sections.get(norm_sec)
+                    if not sec_obj:
+                        errors.append(f"Unknown section: {raw_sec}")
+                    elif not sec_obj.is_active:
+                        errors.append(f"Section is inactive: {raw_sec}")
+
             if errors:
                 if status_tag != "DUPLICATE":
                     status_tag = "INVALID"
@@ -509,6 +754,7 @@ class ImportService:
                 "row_number": row_num,
                 "roll_number": raw_roll,
                 "email": raw_email,
+                "section": raw_sec,
                 "euid": euid_preview,
                 "status": status_tag,
                 "errors": errors
@@ -540,11 +786,17 @@ class ImportService:
             for item in items:
                 roll = item.get('roll_number', '').strip()
                 email = item.get('email', '').strip().lower()
+                sec_code = item.get('section', '').strip()
+
+                sec_obj = None
+                if sec_code:
+                    sec_obj = Section.objects.filter(code=sec_code.upper()).first()
 
                 try:
                     user, profile = StudentService.create_student(
                         email=email,
                         roll_number=roll,
+                        section=sec_obj,
                         actor=actor,
                         request=request
                     )
@@ -552,12 +804,14 @@ class ImportService:
                         "id": str(profile.id),
                         "email": user.email,
                         "roll_number": profile.roll_number,
-                        "euid": profile.euid
+                        "euid": profile.euid,
+                        "section": profile.section.code if profile.section else None
                     })
                 except Exception as e:
                     failed_rows.append({
                         "roll_number": roll,
                         "email": email,
+                        "section": sec_code,
                         "error": str(e)
                     })
 

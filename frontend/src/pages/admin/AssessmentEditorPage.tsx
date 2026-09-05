@@ -32,6 +32,7 @@ import {
   ResultVisibility,
 } from '../../types/assessment';
 import { QuestionItem } from '../../types/question';
+import { AssessmentAudiencePanel } from '../../components/admin/AssessmentAudiencePanel';
 
 export const AssessmentEditorPage: React.FC = () => {
   const { id: routeAssessmentId } = useParams<{ id?: string }>();
@@ -51,6 +52,7 @@ export const AssessmentEditorPage: React.FC = () => {
   const [randomizeQuestions, setRandomizeQuestions] = useState(false);
   const [randomizeOptions, setRandomizeOptions] = useState(false);
   const [resultVisibility, setResultVisibility] = useState<ResultVisibility>('AFTER_DEADLINE');
+  const [audienceTotalEligible, setAudienceTotalEligible] = useState<number>(0);
 
   // Question Picker state
   const [isQuestionPickerOpen, setIsQuestionPickerOpen] = useState(false);
@@ -498,6 +500,15 @@ export const AssessmentEditorPage: React.FC = () => {
         </div>
       </Card>
 
+      {/* Target Audience & Section Classification */}
+      {isEditing && (
+        <AssessmentAudiencePanel
+          assessmentId={routeAssessmentId || null}
+          isLocked={isLocked}
+          onValidationChange={(_isValid, count) => setAudienceTotalEligible(count)}
+        />
+      )}
+
       {/* Section 2: Assessment Questions List & Point Invariant Check */}
       {isEditing && (
         <Card className="p-6 space-y-6">
@@ -598,17 +609,28 @@ export const AssessmentEditorPage: React.FC = () => {
           )}
 
           {!isLocked && isEditing && (
-            <Button
-              type="button"
-              variant="primary"
-              size="md"
-              onClick={handlePublish}
-              isLoading={isPublishing}
-              disabled={linkedQuestions.length === 0 || questionPointsSum !== totalPoints}
-            >
-              <CheckCircle2 className="w-4 h-4 mr-2" />
-              Publish Assessment
-            </Button>
+            <div className="flex items-center gap-2">
+              {audienceTotalEligible === 0 && (
+                <span className="text-xs text-amber-700 font-semibold bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg">
+                  ⚠️ Audience Required
+                </span>
+              )}
+              <Button
+                type="button"
+                variant="primary"
+                size="md"
+                onClick={handlePublish}
+                isLoading={isPublishing}
+                disabled={
+                  linkedQuestions.length === 0 ||
+                  questionPointsSum !== totalPoints ||
+                  audienceTotalEligible === 0
+                }
+              >
+                <CheckCircle2 className="w-4 h-4 mr-2" />
+                Publish Assessment
+              </Button>
+            </div>
           )}
         </div>
       </div>
