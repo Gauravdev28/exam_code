@@ -1,7 +1,7 @@
 # CODEGUARD — Online Coding & Technical Assessment Platform
 
 ![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge)
-![Backend Tests](https://img.shields.io/badge/Pytest-327%2F327%20PASS-success?style=for-the-badge&logo=python)
+![Backend Tests](https://img.shields.io/badge/Pytest-372%2F372%20PASS-success?style=for-the-badge&logo=python)
 ![Frontend Status](https://img.shields.io/badge/Frontend-TypeScript%20Verified-blue?style=for-the-badge&logo=react)
 ![Django 5](https://img.shields.io/badge/Backend-Django_5_|_DRF_|_Channels-092e20?style=for-the-badge&logo=django)
 ![React 18](https://img.shields.io/badge/Frontend-React_18_|_TypeScript_|_Tailwind-20232a?style=for-the-badge&logo=react)
@@ -40,7 +40,7 @@ Phase 10: Human Invigilation & Live Interventions   ──► IMPLEMENTED & VERI
 ```
 
 ### Verified Quality Metrics:
-- **Backend Test Suite**: **327 / 327 PASS** (257 Phase 1–9 regression tests + 70 Phase 10 invigilation tests).
+- **Backend Test Suite**: **372 / 372 PASS** (257 Phase 1–9 regression tests + 101 Phase 10 invigilation tests + 14 Phase 10.1 hardening tests).
 - **Frontend Typecheck**: **0 errors** (`tsc --noEmit` PASS).
 - **Frontend Production Build**: **PASS** (`vite build` production bundle generated cleanly).
 - **Database Schema**: `python manage.py makemigrations --check` $\longrightarrow$ **"No changes detected"**.
@@ -96,7 +96,7 @@ codeguard/
 │   │   ├── proctoring/         # AI vision models, telemetry, and risk scoring
 │   │   ├── results/            # Score finalization, gradebook, PDF scorecards
 │   │   └── retention/          # Data retention, purges, legal holds, DSAR encryption
-│   └── tests/                  # 257 automated backend tests
+│   └── tests/                  # 372 automated backend tests
 ├── frontend/
 │   ├── index.html              # Single-page app HTML host
 │   ├── package.json            # Node.js dependency manifest
@@ -162,7 +162,7 @@ Execute the complete backend test suite:
 ```bash
 cd backend
 pytest -q
-# Output: 257 passed in ~2.7s
+# Output: 372 passed
 ```
 
 Run frontend typechecking and production build:
