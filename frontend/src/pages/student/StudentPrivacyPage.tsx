@@ -69,37 +69,37 @@ export const StudentPrivacyPage: React.FC = () => {
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-white">Your Privacy & Personal Data</h1>
-        <p className="text-sm text-slate-400 mt-1">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Your Privacy & Personal Data</h1>
+        <p className="text-sm text-slate-600 mt-1">
           Review institutional data retention policies, monitor your assessment telemetry lifecycle, and request encrypted personal data exports (DSAR).
         </p>
       </div>
 
       {error && (
-        <div className="p-4 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-sm">
+        <div className="p-4 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-sm">
           {error}
         </div>
       )}
 
       {successMessage && (
-        <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-sm flex justify-between items-center">
+        <div className="p-4 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 text-sm flex justify-between items-center">
           <span>{successMessage}</span>
-          <button onClick={() => setSuccessMessage(null)} className="text-xs text-emerald-400 hover:underline">
+          <button onClick={() => setSuccessMessage(null)} className="text-xs text-emerald-700 font-semibold hover:underline">
             Dismiss
           </button>
         </div>
       )}
 
       {/* Policy Notice Card */}
-      <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-6 space-y-3">
+      <div className="bg-white border border-slate-200 shadow-sm rounded-xl p-6 space-y-3">
         <div className="flex items-center gap-2">
-          <span className="text-brand-400 text-lg">🛡</span>
-          <h2 className="text-base font-semibold text-white">Data Retention Policy & Principles</h2>
+          <span className="text-emerald-600 text-lg">🛡</span>
+          <h2 className="text-base font-semibold text-slate-900">Data Retention Policy & Principles</h2>
         </div>
-        <p className="text-sm text-slate-400 leading-relaxed">
+        <p className="text-sm text-slate-600 leading-relaxed">
           Pursuant to institutional academic governance and global privacy standards (GDPR/FERPA), detailed examination telemetry
           (including your selected answers, submitted source code, and proctoring events) is automatically scheduled for permanent scrubbing{' '}
-          <strong className="text-white">{retentionStatus?.default_policy_days || 30} days</strong> following assessment completion.
+          <strong className="text-slate-900 font-bold">{retentionStatus?.default_policy_days || 30} days</strong> following assessment completion.
         </p>
         <p className="text-xs text-slate-500 leading-relaxed">
           Official academic transcripts, final scores, percentages, and pass/fail credentials are permanently preserved in the Historical Result Summary ledger and are never deleted.
@@ -109,11 +109,11 @@ export const StudentPrivacyPage: React.FC = () => {
       {/* Assessment Lifecycle Table */}
       <div className="space-y-4">
         <div className="flex justify-between items-center">
-          <h2 className="text-base font-semibold text-white">Your Assessment Data Lifecycles</h2>
+          <h2 className="text-base font-semibold text-slate-900">Your Assessment Data Lifecycles</h2>
         </div>
-        <div className="bg-slate-900/40 border border-slate-800 rounded-xl overflow-hidden">
-          <table className="w-full text-left text-sm text-slate-300">
-            <thead className="bg-slate-950 text-xs uppercase text-slate-400 border-b border-slate-800 font-mono">
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+          <table className="w-full text-left text-sm text-slate-800">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-600 border-b border-slate-200 font-mono font-semibold">
               <tr>
                 <th className="px-4 py-3">Assessment Title</th>
                 <th className="px-4 py-3">Submitted At</th>
@@ -122,10 +122,10 @@ export const StudentPrivacyPage: React.FC = () => {
                 <th className="px-4 py-3 text-right">Data Export</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60 text-xs">
+            <tbody className="divide-y divide-slate-100 text-xs">
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
+                  <td colSpan={5} className="px-4 py-6 text-center text-slate-500 font-mono">
                     Loading your retention status...
                   </td>
                 </tr>
@@ -137,19 +137,19 @@ export const StudentPrivacyPage: React.FC = () => {
                 </tr>
               ) : (
                 retentionStatus.attempts.map((att) => (
-                  <tr key={att.attempt_id} className="hover:bg-slate-800/20">
-                    <td className="px-4 py-3 font-medium text-white">{att.assessment_title}</td>
-                    <td className="px-4 py-3 text-slate-400">
+                  <tr key={att.attempt_id} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 font-semibold text-slate-900">{att.assessment_title}</td>
+                    <td className="px-4 py-3 text-slate-600">
                       {att.submitted_at ? new Date(att.submitted_at).toLocaleDateString() : '—'}
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-mono ${
+                        className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
                           att.purge_state === 'PURGED'
-                            ? 'bg-slate-800 text-slate-400'
+                            ? 'bg-slate-100 text-slate-600 border border-slate-200'
                             : att.purge_state === 'DEFERRED_HOLD'
-                            ? 'bg-indigo-500/20 text-indigo-300'
-                            : 'bg-emerald-500/20 text-emerald-400'
+                            ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                         }`}
                       >
                         {att.purge_state === 'PURGED' ? 'PURGED (SCRUBBED)' : att.purge_state}
@@ -159,7 +159,7 @@ export const StudentPrivacyPage: React.FC = () => {
                       {att.purge_state === 'PURGED' ? (
                         <span className="text-slate-500 italic">Detailed data purged</span>
                       ) : att.days_remaining_until_purge !== null ? (
-                        <span className="font-semibold text-amber-400">
+                        <span className="font-semibold text-amber-700">
                           {att.days_remaining_until_purge} days remaining
                         </span>
                       ) : (
@@ -170,7 +170,7 @@ export const StudentPrivacyPage: React.FC = () => {
                       <button
                         onClick={() => handleRequestExport(att.attempt_id)}
                         disabled={requesting}
-                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-brand-400 text-xs rounded border border-brand-500/20 transition-all disabled:opacity-50"
+                        className="px-2.5 py-1 bg-white hover:bg-slate-50 text-emerald-700 font-semibold text-xs rounded border border-emerald-300 transition-all disabled:opacity-50"
                       >
                         Export Data
                       </button>
@@ -187,23 +187,23 @@ export const StudentPrivacyPage: React.FC = () => {
       <div className="space-y-4">
         <div className="flex justify-between items-center">
           <div>
-            <h2 className="text-base font-semibold text-white">Your Personal Data Exports (DSAR)</h2>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <h2 className="text-base font-semibold text-slate-900">Your Personal Data Exports (DSAR)</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
               Personal archives are encrypted at rest using AES-256-GCM and retained for exactly 7 days before automated deletion.
             </p>
           </div>
           <button
             onClick={() => handleRequestExport()}
             disabled={requesting}
-            className="px-3.5 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-xs font-semibold shadow-md transition-all disabled:opacity-50"
+            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-all disabled:opacity-50"
           >
             {requesting ? 'Queueing...' : '+ Request Full Account Export'}
           </button>
         </div>
 
-        <div className="bg-slate-900/40 border border-slate-800 rounded-xl overflow-hidden">
-          <table className="w-full text-left text-sm text-slate-300">
-            <thead className="bg-slate-950 text-xs uppercase text-slate-400 border-b border-slate-800 font-mono">
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+          <table className="w-full text-left text-sm text-slate-800">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-600 border-b border-slate-200 font-mono font-semibold">
               <tr>
                 <th className="px-4 py-3">Scope / Target</th>
                 <th className="px-4 py-3">Status</th>
@@ -212,7 +212,7 @@ export const StudentPrivacyPage: React.FC = () => {
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60 text-xs font-mono">
+            <tbody className="divide-y divide-slate-100 text-xs font-mono">
               {exportJobs.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-6 text-center text-slate-500 font-sans">
@@ -221,35 +221,35 @@ export const StudentPrivacyPage: React.FC = () => {
                 </tr>
               ) : (
                 exportJobs.map((job) => (
-                  <tr key={job.id} className="hover:bg-slate-800/20">
-                    <td className="px-4 py-3 font-sans text-white">
+                  <tr key={job.id} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 font-sans font-medium text-slate-900">
                       {job.assessment_title || 'Complete Account Data'}
                       <div className="text-[10px] text-slate-500 font-mono">{job.id.substring(0, 16)}...</div>
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`px-2 py-0.5 rounded text-[10px] ${
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                           job.status === 'READY'
-                            ? 'bg-emerald-500/20 text-emerald-400'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                             : job.status === 'EXPIRED'
-                            ? 'bg-slate-800 text-slate-500'
+                            ? 'bg-slate-100 text-slate-500 border border-slate-200'
                             : job.status === 'FAILED'
-                            ? 'bg-rose-500/20 text-rose-400'
-                            : 'bg-amber-500/20 text-amber-400'
+                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
                         }`}
                       >
                         {job.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-slate-400">
+                    <td className="px-4 py-3 text-slate-600">
                       {job.encryption_algorithm} ({job.encryption_key_version})
                     </td>
-                    <td className="px-4 py-3 text-slate-400">
+                    <td className="px-4 py-3 text-slate-600">
                       {job.expires_at ? (
                         new Date(job.expires_at) > new Date() ? (
                           `Expires ${new Date(job.expires_at).toLocaleDateString()}`
                         ) : (
-                          <span className="text-slate-500">Expired</span>
+                          <span className="text-slate-400">Expired</span>
                         )
                       ) : (
                         '—'
@@ -260,14 +260,14 @@ export const StudentPrivacyPage: React.FC = () => {
                         <button
                           onClick={() => handleDownload(job)}
                           disabled={downloadingId === job.id}
-                          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-medium transition-all"
+                          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold transition-all"
                         >
                           {downloadingId === job.id ? 'Decrypting...' : 'Download ZIP'}
                         </button>
                       ) : job.status === 'EXPIRED' ? (
-                        <span className="text-slate-600 text-xs italic">Unlinked</span>
+                        <span className="text-slate-400 text-xs italic">Unlinked</span>
                       ) : (
-                        <span className="text-amber-400 text-xs animate-pulse">Processing...</span>
+                        <span className="text-amber-600 text-xs font-semibold animate-pulse">Processing...</span>
                       )}
                     </td>
                   </tr>

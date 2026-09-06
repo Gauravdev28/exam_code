@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { getStudentAssessments } from '../../api/assessments';
+import { getStudentAssessments, startAssessmentAttempt } from '../../api/assessments';
 import { ResultsAPI } from '../../api/results';
 import { StudentAssessmentItem } from '../../types/assessment';
 import { AssessmentResult } from '../../types/results';
@@ -26,6 +26,7 @@ export const StudentDashboardPage: React.FC = () => {
   const [assessments, setAssessments] = useState<StudentAssessmentItem[]>([]);
   const [results, setResults] = useState<AssessmentResult[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isStartingId, setIsStartingId] = useState<string | null>(null);
 
   useEffect(() => {
     loadDashboardData();
@@ -48,6 +49,29 @@ export const StudentDashboardPage: React.FC = () => {
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleStartAttempt = async (aId: string, activeAttemptId?: string | null) => {
+    if (activeAttemptId) {
+      navigate(`/student/room/${activeAttemptId}`);
+      return;
+    }
+
+    if (!window.confirm('Are you ready to start this assessment? Your timer will begin immediately upon starting.')) {
+      return;
+    }
+
+    setIsStartingId(aId);
+    try {
+      const res = await startAssessmentAttempt(aId);
+      if (res.data?.attempt_id) {
+        navigate(`/student/room/${res.data.attempt_id}`);
+      }
+    } catch (err: any) {
+      alert(err.error?.message || err.message || 'Failed to start assessment attempt.');
+    } finally {
+      setIsStartingId(null);
     }
   };
 
@@ -252,7 +276,9 @@ export const StudentDashboardPage: React.FC = () => {
                         variant="primary"
                         size="sm"
                         className="w-full flex items-center justify-center gap-2"
-                        onClick={() => navigate('/student/assessments')}
+                        disabled={isStartingId === item.id}
+                        isLoading={isStartingId === item.id}
+                        onClick={() => handleStartAttempt(item.id, item.active_attempt_id)}
                       >
                         <Play className="w-3.5 h-3.5" />
                         <span>Enter Assessment Room</span>

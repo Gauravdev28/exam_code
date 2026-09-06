@@ -70,34 +70,34 @@ export const StudentAssessmentsPage: React.FC = () => {
   return (
     <div className="container mx-auto px-4 py-8 space-y-6 max-w-5xl">
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-slate-900 pb-6">
-        <div className="p-2.5 rounded-xl bg-brand-500/10 text-brand-400 border border-brand-500/20">
+      <div className="flex items-center gap-3 border-b border-slate-200 pb-6">
+        <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200">
           <FileText className="w-6 h-6" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">My Assigned Assessments</h1>
-          <p className="text-sm text-slate-400">
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">My Assigned Assessments</h1>
+          <p className="text-sm text-slate-600">
             View available technical assessments, scheduled deadlines, and take your exams
           </p>
         </div>
       </div>
 
       {errorMessage && (
-        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-3 text-red-300 text-sm font-mono">
-          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-3 text-rose-800 text-sm font-mono">
+          <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
           <span>{errorMessage}</span>
         </div>
       )}
 
       {isLoading ? (
         <div className="py-16 flex flex-col items-center justify-center space-y-3">
-          <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs text-slate-400 font-mono">Loading assigned assessments...</p>
+          <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs text-slate-500 font-mono">Loading assigned assessments...</p>
         </div>
       ) : assessments.length === 0 ? (
-        <Card className="p-12 text-center space-y-3 border-slate-800">
-          <FileText className="w-10 h-10 text-slate-600 mx-auto" />
-          <p className="text-slate-400 text-sm">You do not have any assessments assigned at this time.</p>
+        <Card className="p-12 text-center space-y-3 border-slate-200 bg-white shadow-sm">
+          <FileText className="w-10 h-10 text-slate-400 mx-auto" />
+          <p className="text-slate-600 text-sm">You do not have any assessments assigned at this time.</p>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -113,7 +113,7 @@ export const StudentAssessmentsPage: React.FC = () => {
             return (
               <Card
                 key={a.id}
-                className="p-6 flex flex-col justify-between space-y-6 border-slate-800/80 bg-slate-950/60 hover:border-slate-700/80 transition-colors"
+                className="p-6 flex flex-col justify-between space-y-6 border-slate-200 bg-white shadow-sm hover:border-emerald-300 transition-colors"
               >
                 <div className="space-y-4">
                   {/* Status Badges */}
@@ -138,47 +138,47 @@ export const StudentAssessmentsPage: React.FC = () => {
                         : 'EXPIRED / COMPLETED'}
                     </Badge>
 
-                    <span className="text-xs font-mono font-bold text-brand-400">
+                    <span className="text-xs font-mono font-bold text-emerald-700">
                       {a.total_points} Points
                     </span>
                   </div>
 
                   {/* Title & Description */}
                   <div>
-                    <h3 className="text-lg font-bold text-white">{a.title}</h3>
-                    <p className="text-xs text-slate-400 mt-1 line-clamp-2">{a.description}</p>
+                    <h3 className="text-lg font-bold text-slate-900">{a.title}</h3>
+                    <p className="text-xs text-slate-600 mt-1 line-clamp-2">{a.description}</p>
                   </div>
 
                   {/* Meta Details */}
-                  <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 text-xs font-mono text-slate-300">
+                  <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono text-slate-700">
                     <div className="flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-amber-400" />
+                      <Clock className="w-3.5 h-3.5 text-amber-600" />
                       <span>Duration: <strong>{a.duration_minutes}m</strong></span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <FileText className="w-3.5 h-3.5 text-purple-400" />
+                      <FileText className="w-3.5 h-3.5 text-purple-600" />
                       <span>Attempts: <strong>{a.attempts_used}/{a.attempt_limit}</strong></span>
                     </div>
-                    <div className="col-span-2 flex items-center gap-1.5 text-[11px] text-slate-400 border-t border-slate-800/60 pt-2 mt-1">
-                      <Calendar className="w-3.5 h-3.5 text-brand-400" />
+                    <div className="col-span-2 flex items-center gap-1.5 text-[11px] text-slate-500 border-t border-slate-200 pt-2 mt-1">
+                      <Calendar className="w-3.5 h-3.5 text-emerald-600" />
                       <span>Window: {startDate.toLocaleDateString()} – {endDate.toLocaleDateString()}</span>
                     </div>
                   </div>
 
                   {a.instructions && (
-                    <p className="text-xs text-slate-400 italic">
+                    <p className="text-xs text-slate-500 italic">
                       <strong>Instructions:</strong> {a.instructions}
                     </p>
                   )}
                 </div>
 
                 {/* Actions */}
-                <div className="pt-2 border-t border-slate-900 flex justify-end">
+                <div className="pt-2 border-t border-slate-100 flex justify-end">
                   {hasActiveAttempt ? (
                     <Button
                       variant="primary"
                       size="md"
-                      className="w-full"
+                      className="w-full bg-amber-600 hover:bg-amber-700 text-white"
                       onClick={() => handleStartAttempt(a.id, a.active_attempt_id)}
                     >
                       <Play className="w-4 h-4 mr-2" />
@@ -204,7 +204,7 @@ export const StudentAssessmentsPage: React.FC = () => {
                     <Button
                       variant="secondary"
                       size="md"
-                      className="w-full text-brand-400 border-brand-500/30 hover:bg-brand-500/10"
+                      className="w-full text-emerald-700 border-emerald-200 hover:bg-emerald-50"
                       onClick={() => navigate(`/student/results/${a.id}`)}
                     >
                       <Award className="w-4 h-4 mr-2" />
