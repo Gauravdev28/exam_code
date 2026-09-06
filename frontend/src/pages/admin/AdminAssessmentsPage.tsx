@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { getAdminAssessments, archiveAssessment, publishAssessment } from '../../api/assessments';
+import { getAdminAssessments, publishAssessment } from '../../api/assessments';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -13,7 +13,6 @@ import {
   Search,
   Users,
   Edit,
-  Archive,
   AlertCircle,
   Calendar,
   Clock,
@@ -74,16 +73,6 @@ export const AdminAssessmentsPage: React.FC = () => {
     e.preventDefault();
     setCurrentPage(1);
     fetchAssessments();
-  };
-
-  const handleArchive = async (aId: string) => {
-    if (!window.confirm('Are you sure you want to archive this assessment?')) return;
-    try {
-      await archiveAssessment(aId);
-      fetchAssessments();
-    } catch (err: any) {
-      alert(err.error?.message || 'Failed to archive assessment.');
-    }
   };
 
   const [publishingId, setPublishingId] = useState<string | null>(null);
@@ -288,62 +277,53 @@ export const AdminAssessmentsPage: React.FC = () => {
                           )}
                         </button>
                       </td>
-                      <td className="px-4 py-3.5 text-right space-x-1 whitespace-nowrap">
-                        {isPublished && (
-                          <>
-                            <Link to={`/admin/assessments/${a.id}/results`}>
-                              <Button variant="secondary" size="sm" title="Assessment Results & Analytics">
-                                <Award className="w-3.5 h-3.5 mr-1 text-amber-600" />
-                                Results
-                              </Button>
-                            </Link>
+                      <td className="px-4 py-3.5 text-right font-sans">
+                        <div className="flex flex-wrap items-center justify-end gap-1.5 max-w-xs ml-auto">
+                          {isPublished && (
+                            <>
+                              <Link to={`/admin/assessments/${a.id}/results`}>
+                                <Button variant="secondary" size="sm" title="Assessment Results & Analytics">
+                                  <Award className="w-3.5 h-3.5 mr-1 text-amber-600" />
+                                  Results
+                                </Button>
+                              </Link>
 
-                            <Link to={`/admin/assessments/${a.id}/proctoring`}>
-                              <Button variant="secondary" size="sm" title="AI Proctoring Dashboard">
-                                <ShieldAlert className="w-3.5 h-3.5 mr-1 text-indigo-600" />
-                                Proctoring
-                              </Button>
-                            </Link>
+                              <Link to={`/admin/assessments/${a.id}/proctoring`}>
+                                <Button variant="secondary" size="sm" title="AI Proctoring Dashboard">
+                                  <ShieldAlert className="w-3.5 h-3.5 mr-1 text-indigo-600" />
+                                  Proctoring
+                                </Button>
+                              </Link>
 
-                            <Link to={`/admin/assessments/${a.id}/attendance`}>
-                              <Button variant="secondary" size="sm" title="Assessment Attendance & Roster">
-                                <ClipboardList className="w-3.5 h-3.5 mr-1 text-teal-600" />
-                                Attendance
-                              </Button>
-                            </Link>
-                          </>
-                        )}
+                              <Link to={`/admin/assessments/${a.id}/attendance`}>
+                                <Button variant="secondary" size="sm" title="Assessment Attendance & Roster">
+                                  <ClipboardList className="w-3.5 h-3.5 mr-1 text-teal-600" />
+                                  Attendance
+                                </Button>
+                              </Link>
+                            </>
+                          )}
 
-                        <Link to={`/admin/assessments/${a.id}`}>
-                          <Button variant="secondary" size="sm" title={isDraft ? "Edit Draft" : "View Assessment"}>
-                            <Edit className="w-3.5 h-3.5 mr-1" />
-                            {isDraft ? "Edit" : "View"}
-                          </Button>
-                        </Link>
+                          <Link to={`/admin/assessments/${a.id}`}>
+                            <Button variant="secondary" size="sm" title="Edit Assessment">
+                              <Edit className="w-3.5 h-3.5 mr-1" />
+                              Edit
+                            </Button>
+                          </Link>
 
-                        {isDraft && (
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={() => handlePublishFromList(a)}
-                            isLoading={publishingId === a.id}
-                            title="Publish Assessment"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-                            Publish
-                          </Button>
-                        )}
-
-                        {isPublished && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleArchive(a.id)}
-                            title="Archive Assessment"
-                          >
-                            <Archive className="w-3.5 h-3.5 text-slate-500 hover:text-rose-600" />
-                          </Button>
-                        )}
+                          {isDraft && (
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              onClick={() => handlePublishFromList(a)}
+                              isLoading={publishingId === a.id}
+                              title="Publish Assessment"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                              Publish
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
