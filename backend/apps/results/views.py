@@ -8,6 +8,7 @@ from django.utils import timezone
 from django.conf import settings
 from rest_framework import status
 from rest_framework.views import APIView
+from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied, ValidationError as DRFValidationError
@@ -16,7 +17,7 @@ from apps.accounts.permissions import IsAdmin, IsStudent, IsActiveUser
 from apps.accounts.models import User
 from apps.accounts.services import AuditService
 from apps.core.views import APIResponse
-from apps.assessments.models import Assessment, TestAttempt
+from apps.assessments.models import Assessment, AssessmentAssignment, AssignmentStatus, TestAttempt
 from .models import (
     AssessmentResult,
     QuestionResult,
@@ -34,6 +35,7 @@ from .services import (
     ReportService,
 )
 from .serializers import (
+    StudentBasicSerializer,
     AssessmentResultStudentDetailSerializer,
     AssessmentResultAdminListSerializer,
     AssessmentResultAdminDetailSerializer,
@@ -289,7 +291,8 @@ class StudentReportDownloadView(APIView):
 
 class AdminAssessmentResultListView(APIView):
     """
-    List candidate results for an assessment with search, filters, and pagination.
+    List candidate results and assignment roster for an assessment with search, filters, and pagination.
+    Primary roster is AssessmentAssignment so assigned candidates appear even if NOT_STARTED.
     GET /api/v1/admin/assessments/<assessment_id>/results/
     """
     permission_classes = [IsAuthenticated, IsActiveUser, IsAdmin]
@@ -297,65 +300,148 @@ class AdminAssessmentResultListView(APIView):
 
     def get(self, request, assessment_id):
         assessment = get_object_or_404(Assessment, id=assessment_id)
-        queryset = AssessmentResult.objects.filter(
-            assessment=assessment
-        ).select_related(
-            'student',
-            'student__student_profile',
-            'attempt',
-            'attempt__proctoring_session'
-        )
+        
+        # Primary roster: All assigned students for this assessment
+        assignments = list(AssessmentAssignment.objects.filter(
+            assessment=assessment,
+            status=AssignmentStatus.ASSIGNED
+        ).select_related('student', 'student__student_profile'))
 
-        # Filters
+        # Map existing results and attempts by student_id
+        results_map = {
+            res.student_id: res for res in AssessmentResult.objects.filter(assessment=assessment).select_related(
+                'student', 'student__student_profile', 'attempt', 'attempt__proctoring_session'
+            )
+        }
+        attempts_map = {
+            att.student_id: att for att in TestAttempt.objects.filter(assessment=assessment).select_related(
+                'student', 'student__student_profile', 'proctoring_session'
+            )
+        }
+
+        roster_items = []
+        for asgn in assignments:
+            stu = asgn.student
+            if stu.id in results_map:
+                res = results_map[stu.id]
+                roster_items.append({
+                    'id': str(res.id),
+                    'attempt_id': str(res.attempt_id) if res.attempt_id else None,
+                    'student': StudentBasicSerializer(stu).data,
+                    'status': 'RELEASED' if res.is_released else 'EVALUATED',
+                    'total_score_earned': str(res.total_score_earned),
+                    'total_possible_score': str(res.total_possible_score),
+                    'percentage': str(res.percentage),
+                    'is_passed': res.is_passed,
+                    'is_released': res.is_released,
+                    'time_spent_seconds': res.time_spent_seconds,
+                    'finalized_at': res.finalized_at.isoformat() if res.finalized_at else None,
+                    'proctoring_summary': {
+                        'risk_score': str(res.attempt.proctoring_session.risk_score),
+                        'risk_band': res.attempt.proctoring_session.risk_band,
+                        'status': res.attempt.proctoring_session.status
+                    } if hasattr(res.attempt, 'proctoring_session') and res.attempt.proctoring_session else None
+                })
+            elif stu.id in attempts_map:
+                att = attempts_map[stu.id]
+                roster_items.append({
+                    'id': str(att.id),
+                    'attempt_id': str(att.id),
+                    'student': StudentBasicSerializer(stu).data,
+                    'status': att.status,
+                    'total_score_earned': "0.00",
+                    'total_possible_score': str(assessment.total_points),
+                    'percentage': "0.00",
+                    'is_passed': False,
+                    'is_released': False,
+                    'time_spent_seconds': att.time_spent_seconds or 0,
+                    'finalized_at': None,
+                    'proctoring_summary': {
+                        'risk_score': str(att.proctoring_session.risk_score),
+                        'risk_band': att.proctoring_session.risk_band,
+                        'status': att.proctoring_session.status
+                    } if hasattr(att, 'proctoring_session') and att.proctoring_session else None
+                })
+            else:
+                roster_items.append({
+                    'id': str(asgn.id),
+                    'attempt_id': None,
+                    'student': StudentBasicSerializer(stu).data,
+                    'status': 'NOT_STARTED',
+                    'total_score_earned': "0.00",
+                    'total_possible_score': str(assessment.total_points),
+                    'percentage': "0.00",
+                    'is_passed': False,
+                    'is_released': False,
+                    'time_spent_seconds': 0,
+                    'finalized_at': None,
+                    'proctoring_summary': None
+                })
+
+        # Filtering
         status_filter = request.query_params.get('status')
         if status_filter:
-            queryset = queryset.filter(status=status_filter.upper())
+            sf = status_filter.upper()
+            roster_items = [item for item in roster_items if item['status'] == sf]
 
         is_passed = request.query_params.get('is_passed')
         if is_passed is not None:
-            queryset = queryset.filter(is_passed=is_passed.lower() in ['true', '1'])
+            passed_bool = is_passed.lower() in ['true', '1']
+            roster_items = [item for item in roster_items if item['is_passed'] == passed_bool]
 
         score_min = request.query_params.get('score_min')
         if score_min is not None:
             try:
-                queryset = queryset.filter(total_score_earned__gte=Decimal(score_min))
+                min_val = Decimal(score_min)
+                roster_items = [item for item in roster_items if Decimal(item['total_score_earned']) >= min_val]
             except Exception:
                 pass
 
         score_max = request.query_params.get('score_max')
         if score_max is not None:
             try:
-                queryset = queryset.filter(total_score_earned__lte=Decimal(score_max))
+                max_val = Decimal(score_max)
+                roster_items = [item for item in roster_items if Decimal(item['total_score_earned']) <= max_val]
             except Exception:
                 pass
 
-        # Search
         search = request.query_params.get('search')
         if search:
-            s = search.strip()
-            queryset = queryset.filter(
-                Q(student__email__icontains=s) |
-                Q(student__student_profile__roll_number__icontains=s) |
-                Q(student__student_profile__euid__icontains=s)
-            )
+            s = search.strip().lower()
+            roster_items = [
+                item for item in roster_items
+                if s in item['student']['email'].lower()
+                or s in item['student']['roll_number'].lower()
+                or s in item['student']['euid'].lower()
+            ]
 
-        # Ordering
-        ordering = request.query_params.get('ordering', '-total_score_earned')
-        valid_orderings = [
-            'total_score_earned', '-total_score_earned',
-            'percentage', '-percentage',
-            'finalized_at', '-finalized_at',
-            'time_spent_seconds', '-time_spent_seconds'
-        ]
-        if ordering in valid_orderings:
-            queryset = queryset.order_by(ordering)
-        else:
-            queryset = queryset.order_by('-total_score_earned')
+        # Manual in-memory pagination over full roster items
+        try:
+            page_num = int(request.query_params.get('page', 1))
+        except (ValueError, TypeError):
+            page_num = 1
 
-        paginator = self.pagination_class()
-        page = paginator.paginate_queryset(queryset, request)
-        serializer = AssessmentResultAdminListSerializer(page, many=True)
-        return paginator.get_paginated_response(serializer.data)
+        try:
+            page_size = int(request.query_params.get('page_size', 20))
+        except (ValueError, TypeError):
+            page_size = 20
+
+        if page_size > 100:
+            page_size = 100
+        elif page_size < 1:
+            page_size = 20
+
+        total_count = len(roster_items)
+        start_idx = (page_num - 1) * page_size
+        end_idx = start_idx + page_size
+        page_data = roster_items[start_idx:end_idx]
+
+        return Response({
+            'count': total_count,
+            'next': None,
+            'previous': None,
+            'results': page_data
+        })
 
 
 class AdminAssessmentResultDetailView(APIView):
