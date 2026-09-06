@@ -28,13 +28,19 @@ class MockJudge0Response:
 
 
 @pytest.fixture(autouse=True)
-def mock_judge0_sandbox(monkeypatch):
+def mock_judge0_sandbox(request, monkeypatch):
     """
     Hermetic transport mock for the external Judge0 CE HTTP API endpoint.
     Emulates the response of an external isolated Judge0 CE v1.13.1 + Isolate v1.10.1
     daemon across all security probes and evaluation payloads.
     Ensures that Django/Celery NEVER executes candidate code in-process.
+
+    If the test is explicitly marked with @pytest.mark.live_judge0, this mock is bypassed
+    to enable live execution against the real Judge0 Docker service.
     """
+    if request.node.get_closest_marker("live_judge0"):
+        return
+
     real_requests_post = requests.post
 
     def _mock_post(url, json=None, headers=None, timeout=None, **kwargs):
@@ -280,4 +286,24 @@ def mock_judge0_sandbox(monkeypatch):
         })
 
     monkeypatch.setattr(requests, "post", _mock_post)
+
+
+@pytest.fixture
+def require_live_judge0():
+    """
+    Validation fixture for live Judge0 execution tests.
+    If Judge0 is healthy and execution is operational, continues test.
+    If unreachable or execution unavailable and JUDGE0_LIVE_TEST is 'true', fails explicitly with diagnostic.
+    If unreachable or execution unavailable and not explicitly demanded, skips cleanly.
+    """
+    import os
+    from apps.evaluator.services import Judge0Adapter
+    detailed = Judge0Adapter.check_health_detailed(timeout=2.0)
+    is_operational = bool(detailed.get("healthy") and detailed.get("execution_operational"))
+    force_live = os.getenv('JUDGE0_LIVE_TEST', 'false').lower() == 'true'
+    if not is_operational:
+        if force_live:
+            pytest.fail(f"JUDGE0_LIVE_TEST is true but Judge0 execution is not operational on JUDGE0_URL: {detailed}")
+        pytest.skip(f"Live Judge0 execution is not operational on host (cgroup v1/isolate requirement). Status: {detailed}")
+
 

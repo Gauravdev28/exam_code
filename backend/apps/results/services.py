@@ -294,14 +294,63 @@ class ResultFinalizationService:
                     skipped_count += 1
 
             elif q_type == QuestionType.SQL:
-                if ans and ans.is_answered and ans.sql_response:
+                # 1. Check for authoritative completed CodeSubmission
+                sql_sub = coding_submissions_map.get(str(sq.id)) or coding_submissions_map.get(sq.snapshot_question_id)
+                if sql_sub and sql_sub.status == 'COMPLETED':
                     is_skipped = False
                     answered_count += 1
-                    # SQL evaluation uses points if answered
-                    earned_pts = max_pts
-                    is_correct = True
-                    correct_count += 1
-                    eval_details = {"sql_query": ans.sql_response, "is_correct": True}
+                    earned_pts = Decimal(str(sql_sub.score_awarded)).quantize(Decimal('0.01'))
+                    is_correct = (sql_sub.verdict == 'ACCEPTED')
+                    if is_correct:
+                        correct_count += 1
+                    else:
+                        incorrect_count += 1
+
+                    eval_details = {
+                        "submission_id": str(sql_sub.id),
+                        "verdict": sql_sub.verdict,
+                        "execution_time_ms": sql_sub.execution_time_ms,
+                        "sql_query": sql_sub.source_code,
+                        "is_correct": is_correct
+                    }
+                elif ans and ans.is_answered and ans.sql_response and ans.sql_response.strip():
+                    is_skipped = False
+                    answered_count += 1
+                    candidate_sql = ans.sql_response.strip()
+
+                    # Authoritative evaluation of student's autosaved SQL query
+                    from apps.evaluator.sql_sandbox import SQLExecutionService
+                    server_sql_eval = eval_info.get('server_sql_eval', {})
+                    schema_setup = server_sql_eval.get('schema_setup_sql') or (sq.sql_config or {}).get('schema_setup_sql', '')
+                    expected_def = server_sql_eval.get('expected_result_definition') or ''
+                    time_limit_ms = server_sql_eval.get('time_limit_ms') or (sq.sql_config or {}).get('time_limit_ms', 3000)
+                    ord_req = server_sql_eval.get('ordering_required')
+                    if ord_req is None:
+                        ord_req = (sq.sql_config or {}).get('ordering_required')
+
+                    eval_res = SQLExecutionService.evaluate_query(
+                        candidate_sql=candidate_sql,
+                        schema_setup_sql=schema_setup,
+                        expected_result_definition=expected_def,
+                        time_limit_ms=time_limit_ms,
+                        ordering_required=ord_req
+                    )
+
+                    is_correct = eval_res.get('is_correct', False)
+                    if is_correct:
+                        earned_pts = max_pts
+                        correct_count += 1
+                    else:
+                        earned_pts = Decimal('0.00')
+                        incorrect_count += 1
+
+                    eval_details = {
+                        "verdict": eval_res.get('verdict'),
+                        "execution_time_ms": eval_res.get('execution_time_ms', 0),
+                        "sql_query": candidate_sql,
+                        "is_correct": is_correct,
+                        "error_message": eval_res.get('error_message') if not is_correct else None
+                    }
                 else:
                     skipped_count += 1
 

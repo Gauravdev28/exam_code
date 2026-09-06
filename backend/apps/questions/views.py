@@ -215,6 +215,33 @@ class AdminQuestionRunSandboxView(APIView):
                 status_code=status.HTTP_400_BAD_REQUEST
             )
 
+        if language.upper() in ['SQL', 'MYSQL']:
+            from apps.evaluator.sql_sandbox import SQLExecutionService
+            schema_setup = request.data.get('schema_setup_sql', '')
+            expected_def = request.data.get('expected_result_definition') or expected_output or ''
+            sql_res = SQLExecutionService.evaluate_query(
+                candidate_sql=source_code,
+                schema_setup_sql=schema_setup,
+                expected_result_definition=expected_def,
+                time_limit_ms=cpu_time_limit_ms
+            )
+            return APIResponse(
+                data={
+                    "status_id": 3 if sql_res.get("is_correct") else 4,
+                    "status_description": sql_res.get("verdict"),
+                    "stdout": str(sql_res.get("candidate_rows")),
+                    "stderr": sql_res.get("error_message") or None,
+                    "compile_output": None,
+                    "time": round(sql_res.get("execution_time_ms", 0) / 1000.0, 3),
+                    "memory": 0,
+                    "passed": sql_res.get("is_correct"),
+                    "expected_output": expected_def,
+                    "columns": sql_res.get("candidate_columns"),
+                    "rows": sql_res.get("candidate_rows")
+                },
+                message="SQL sandbox execution completed."
+            )
+
         # Execute strictly in external isolated sandbox
         result = Judge0Adapter.execute_in_sandbox(
             source_code=source_code,

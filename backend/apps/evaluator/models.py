@@ -27,6 +27,9 @@ class CodeVerdict(models.TextChoices):
     RUNTIME_ERROR = 'RUNTIME_ERROR', 'Runtime Error'
     OUTPUT_LIMIT_EXCEEDED = 'OUTPUT_LIMIT_EXCEEDED', 'Output Limit Exceeded'
     SYSTEM_ERROR = 'SYSTEM_ERROR', 'System Error'
+    SYNTAX_ERROR = 'SYNTAX_ERROR', 'Syntax Error'
+    UNSAFE_QUERY = 'UNSAFE_QUERY', 'Unsafe Query'
+
 
 
 class TestCaseVerdict(models.TextChoices):

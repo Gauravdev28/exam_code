@@ -241,15 +241,96 @@ class Judge0Adapter:
         import requests
         judge0_url = getattr(settings, 'JUDGE0_URL', 'http://127.0.0.1:2358').rstrip('/')
         api_key = getattr(settings, 'JUDGE0_API_KEY', '')
-        headers = {}
+        headers = {"Accept": "application/json"}
         if api_key:
             headers["X-Auth-Token"] = api_key
             headers["X-RapidAPI-Key"] = api_key
         try:
             resp = requests.get(f"{judge0_url}/system_info", headers=headers, timeout=timeout)
-            return resp.status_code == 200
+            if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                    return isinstance(data, dict)
+                except Exception:
+                    return False
+            return False
         except Exception:
             return False
+
+    @classmethod
+    def check_health_detailed(cls, timeout: float = 2.0) -> Dict[str, Any]:
+        """
+        Detailed health check probe distinguishing API reachability, worker health, and system info.
+        """
+        import requests
+        judge0_url = getattr(settings, 'JUDGE0_URL', 'http://127.0.0.1:2358').rstrip('/')
+        api_key = getattr(settings, 'JUDGE0_API_KEY', '')
+        headers = {"Accept": "application/json"}
+        if api_key:
+            headers["X-Auth-Token"] = api_key
+            headers["X-RapidAPI-Key"] = api_key
+
+        api_reachable = False
+        worker_operational = False
+        execution_operational = False
+        info_data = {}
+
+        try:
+            resp = requests.get(f"{judge0_url}/system_info", headers=headers, timeout=timeout)
+            if resp.status_code == 200:
+                api_reachable = True
+                try:
+                    info_data = resp.json()
+                except Exception:
+                    info_data = {}
+        except Exception as e:
+            logger.debug(f"Judge0 API unreachable: {e}")
+
+        if api_reachable:
+            try:
+                w_resp = requests.get(f"{judge0_url}/workers", headers=headers, timeout=timeout)
+                if w_resp.status_code == 200:
+                    w_data = w_resp.json()
+                    if isinstance(w_data, list) and len(w_data) > 0:
+                        worker_operational = any(
+                            isinstance(w, dict) and (w.get("available") is True or w.get("available", 0) > 0 or w.get("idle", 0) > 0 or w.get("working", 0) > 0)
+                            for w in w_data
+                        )
+                    elif isinstance(w_data, dict):
+                        worker_operational = bool(w_data.get("available") or w_data.get("workers"))
+                elif isinstance(info_data.get('workers'), int) and info_data.get('workers', 0) > 0:
+                    worker_operational = True
+            except Exception as e:
+                logger.debug(f"Judge0 worker probe failed: {e}")
+
+        if api_reachable and worker_operational:
+            try:
+                t_resp = requests.post(
+                    f"{judge0_url}/submissions?wait=true",
+                    json={
+                        "source_code": "print(1)",
+                        "language_id": 71,
+                        "cpu_time_limit": 2,
+                    },
+                    headers=headers,
+                    timeout=timeout + 2.0
+                )
+                if t_resp.status_code in (200, 201):
+                    t_data = t_resp.json()
+                    if t_data.get("status", {}).get("id") == 3:
+                        execution_operational = True
+            except Exception as e:
+                logger.debug(f"Judge0 execution probe failed: {e}")
+
+        healthy = api_reachable and worker_operational and execution_operational
+        return {
+            "healthy": healthy,
+            "api_reachable": api_reachable,
+            "worker_operational": worker_operational,
+            "worker_available": worker_operational,
+            "execution_operational": execution_operational,
+            "system_info": info_data
+        }
 
     @classmethod
     def execute_in_sandbox(
@@ -400,14 +481,20 @@ class CodeSubmissionService:
         except AssessmentSnapshotQuestion.DoesNotExist:
             raise DRFValidationError({"question_id": "Question is not part of this assessment attempt snapshot."})
 
-        if snap_q.question_type != 'CODING':
-            raise DRFValidationError({"question_id": "Code execution is only supported for CODING questions."})
+        if snap_q.question_type not in ('CODING', 'SQL'):
+            raise DRFValidationError({"question_id": "Code execution is only supported for CODING and SQL questions."})
 
         # 4. Validate Language
-        allowed_langs = snap_q.coding_config.get('allowed_languages', ['PYTHON', 'CPP', 'JAVA'])
-        lang_upper = (language or '').upper()
-        if lang_upper not in allowed_langs:
-            raise DRFValidationError({"language": f"Language '{language}' is not permitted. Allowed: {allowed_langs}"})
+        if snap_q.question_type == 'CODING':
+            allowed_langs = snap_q.coding_config.get('allowed_languages', ['PYTHON', 'CPP', 'JAVA'])
+            lang_upper = (language or '').upper()
+            if lang_upper not in allowed_langs:
+                raise DRFValidationError({"language": f"Language '{language}' is not permitted. Allowed: {allowed_langs}"})
+        elif snap_q.question_type == 'SQL':
+            dialect = (snap_q.sql_config or {}).get('allowed_dialect', 'MYSQL').upper()
+            lang_upper = (language or dialect or 'MYSQL').upper()
+            if lang_upper not in ['SQL', 'MYSQL', dialect]:
+                raise DRFValidationError({"language": f"Language '{language}' is not permitted for SQL question. Allowed: ['SQL', 'MYSQL']"})
 
         # 5. Validate Source Code Size (Max 64KB)
         if not source_code or len(source_code.strip()) == 0:
@@ -460,10 +547,15 @@ class CodeSubmissionService:
                 })
 
         # 9. Extract Execution Policy & Environment Versions
-        exec_policy = snap_q.coding_config.get('execution_policy', {})
-        env_ver = exec_policy.get('environment_version', f"CG-ENV-{lang_upper}-V1")
-        exec_ver = exec_policy.get('execution_policy_version', 'CG-EXEC-V1')
-        cmp_ver = exec_policy.get('comparison_policy_version', 'CG-CMP-V1')
+        if snap_q.question_type == 'CODING':
+            exec_policy = snap_q.coding_config.get('execution_policy', {})
+            env_ver = exec_policy.get('environment_version', f"CG-ENV-{lang_upper}-V1")
+            exec_ver = exec_policy.get('execution_policy_version', 'CG-EXEC-V1')
+            cmp_ver = exec_policy.get('comparison_policy_version', 'CG-CMP-V1')
+        else:
+            env_ver = f"CG-ENV-MYSQL8-V1"
+            exec_ver = 'CG-EXEC-SQL-V1'
+            cmp_ver = 'CG-CMP-TABULAR-V1'
 
         submission = CodeSubmission.objects.create(
             attempt=attempt,
@@ -516,6 +608,12 @@ class CodeSubmissionService:
         attempt = submission.attempt
         snap_q = submission.snapshot_question
         snapshot = snap_q.snapshot
+
+        # Delegate SQL evaluation directly to SQLExecutionService
+        if snap_q.question_type == 'SQL':
+            from apps.evaluator.sql_sandbox import SQLExecutionService
+            return SQLExecutionService.evaluate_sql_submission(submission)
+
         exec_policy = snap_q.coding_config.get('execution_policy', {})
         cmp_policy = exec_policy.get('comparison_policy', {'mode': 'EXACT_STRIPPED'})
 

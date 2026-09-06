@@ -247,3 +247,11 @@ DSAR_MASTER_KEYS = {
 SESSION_IDLE_TIMEOUT_SECONDS = int(os.getenv('SESSION_IDLE_TIMEOUT_SECONDS', '1800'))  # 30 minutes
 SESSION_WARNING_SECONDS = int(os.getenv('SESSION_WARNING_SECONDS', '120'))             # 2 minutes warning
 
+# SQL Sandbox Execution Configuration (Phase 11 Production Hardening)
+SQL_SANDBOX_HOST = os.getenv('SQL_SANDBOX_HOST', '127.0.0.1')
+SQL_SANDBOX_PORT = int(os.getenv('SQL_SANDBOX_PORT', '3306'))
+SQL_SANDBOX_ADMIN_USER = os.getenv('SQL_SANDBOX_ADMIN_USER', os.getenv('SQL_SANDBOX_USER', 'root'))
+SQL_SANDBOX_ADMIN_PASSWORD = os.getenv('SQL_SANDBOX_ADMIN_PASSWORD', os.getenv('SQL_SANDBOX_PASSWORD', 'root_secure_password'))
+SQL_SANDBOX_DEFAULT_TIMEOUT_SEC = int(os.getenv('SQL_SANDBOX_DEFAULT_TIMEOUT_SEC', '3'))
+SQL_SANDBOX_MAX_ROWS = int(os.getenv('SQL_SANDBOX_MAX_ROWS', '1000'))
+

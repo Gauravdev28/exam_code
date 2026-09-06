@@ -84,9 +84,113 @@ services:
     networks:
       - codeguard_prod_network
 
+  # ----------------------------------------------------------------------------
+  # Judge0 Community Edition (Internal Isolated Production Execution Stack)
+  # ----------------------------------------------------------------------------
+  judge0_db:
+    image: postgres:16-alpine
+    container_name: codeguard_judge0_db_prod
+    restart: always
+    environment:
+      POSTGRES_DB: judge0
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: ${JUDGE0_POSTGRES_PASSWORD:-judge0_prod_secure_password}
+    volumes:
+      - judge0_prod_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U judge0 -d judge0"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - codeguard_prod_network
+
+  judge0_redis:
+    image: redis:7-alpine
+    container_name: codeguard_judge0_redis_prod
+    restart: always
+    command: ["redis-server", "--appendonly", "no", "--requirepass", "${JUDGE0_REDIS_PASSWORD:-judge0_prod_redis_pass}"]
+    volumes:
+      - judge0_prod_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${JUDGE0_REDIS_PASSWORD:-judge0_prod_redis_pass}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - codeguard_prod_network
+
+  judge0:
+    image: judge0/judge0:1.13.1
+    container_name: codeguard_judge0_prod
+    restart: always
+    volumes:
+      - ./docker/judge0/judge0.conf:/judge0.conf:ro
+    privileged: true
+    environment:
+      - REDIS_HOST=judge0_redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${JUDGE0_REDIS_PASSWORD:-judge0_prod_redis_pass}
+      - POSTGRES_HOST=judge0_db
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=judge0
+      - POSTGRES_PASSWORD=${JUDGE0_POSTGRES_PASSWORD:-judge0_prod_secure_password}
+      - POSTGRES_DB=judge0
+    depends_on:
+      judge0_db:
+        condition: service_healthy
+      judge0_redis:
+        condition: service_healthy
+    networks:
+      - codeguard_prod_network
+
+  judge0_workers:
+    image: judge0/judge0:1.13.1
+    container_name: codeguard_judge0_workers_prod
+    restart: always
+    command: ["./scripts/workers"]
+    volumes:
+      - ./docker/judge0/judge0.conf:/judge0.conf:ro
+    privileged: true
+    environment:
+      - REDIS_HOST=judge0_redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${JUDGE0_REDIS_PASSWORD:-judge0_prod_redis_pass}
+      - POSTGRES_HOST=judge0_db
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=judge0
+      - POSTGRES_PASSWORD=${JUDGE0_POSTGRES_PASSWORD:-judge0_prod_secure_password}
+      - POSTGRES_DB=judge0
+    depends_on:
+      judge0:
+        condition: service_started
+      judge0_db:
+        condition: service_healthy
+      judge0_redis:
+        condition: service_healthy
+    networks:
+      - codeguard_prod_network
+
+  # ----------------------------------------------------------------------------
+  # Dedicated SQL Sandbox MySQL Instance (Production Dedicated Tier)
+  # ----------------------------------------------------------------------------
+  mysql_sandbox:
+    image: mysql:8.0
+    container_name: codeguard_mysql_sandbox_prod
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${SQL_SANDBOX_ADMIN_PASSWORD:-sandbox_root_secure_password}
+    volumes:
+      - mysql_sandbox_prod_data:/var/lib/mysql
+    networks:
+      - codeguard_prod_network
+
 volumes:
   mysql_prod_data:
   redis_prod_data:
+  judge0_prod_db_data:
+  judge0_prod_redis_data:
+  mysql_sandbox_prod_data:
 
 networks:
   codeguard_prod_network:
