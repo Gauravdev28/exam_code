@@ -10,6 +10,8 @@ from .views import (
     AdminAssessmentQuestionRemoveView,
     AdminAssessmentAssignmentListView,
     AdminAssessmentAssignmentRevokeView,
+    AdminAssessmentAttendanceView,
+    AdminAssessmentAttendanceExportView,
     StudentAssessmentListView,
     StudentAssessmentDetailView,
     StudentAssessmentStartView,
@@ -32,6 +34,8 @@ urlpatterns = [
     path('admin/assessments/<uuid:pk>/questions/<uuid:question_version_id>/', AdminAssessmentQuestionRemoveView.as_view(), name='admin-assessment-question-remove'),
     path('admin/assessments/<uuid:pk>/assignments/', AdminAssessmentAssignmentListView.as_view(), name='admin-assessment-assignment-list'),
     path('admin/assessments/<uuid:pk>/assignments/<uuid:student_id>/', AdminAssessmentAssignmentRevokeView.as_view(), name='admin-assessment-assignment-revoke'),
+    path('admin/assessments/<uuid:pk>/attendance/', AdminAssessmentAttendanceView.as_view(), name='admin-assessment-attendance'),
+    path('admin/assessments/<uuid:pk>/attendance/export/', AdminAssessmentAttendanceExportView.as_view(), name='admin-assessment-attendance-export'),
 
     # Student Assessment & Attempt Endpoints
     path('student/assessments/', StudentAssessmentListView.as_view(), name='student-assessment-list'),

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { getAdminAssessments, archiveAssessment, deleteAssessment } from '../../api/assessments';
+import { getAdminAssessments, archiveAssessment, publishAssessment } from '../../api/assessments';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -14,7 +14,6 @@ import {
   Users,
   Edit,
   Archive,
-  Trash2,
   AlertCircle,
   Calendar,
   Clock,
@@ -22,6 +21,8 @@ import {
   ChevronRight,
   ShieldAlert,
   Award,
+  CheckCircle2,
+  ClipboardList,
 } from 'lucide-react';
 import { AssessmentAdminItem } from '../../types/assessment';
 
@@ -85,13 +86,31 @@ export const AdminAssessmentsPage: React.FC = () => {
     }
   };
 
-  const handleDelete = async (aId: string) => {
-    if (!window.confirm('Are you sure you want to delete this draft assessment?')) return;
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+
+  const handlePublishFromList = async (a: AssessmentAdminItem) => {
+    if (
+      !window.confirm(
+        `Are you sure you want to publish "${a.title}"? Once published, the assessment and its question snapshot will become permanently immutable.`
+      )
+    ) {
+      return;
+    }
+    setPublishingId(a.id);
+    setErrorMessage(null);
     try {
-      await deleteAssessment(aId);
+      await publishAssessment(a.id);
       fetchAssessments();
     } catch (err: any) {
-      alert(err.error?.message || 'Failed to delete assessment.');
+      const details = err.error?.details;
+      let detailedMsg = err.error?.message;
+      if (details && typeof details === 'object') {
+        const fieldMsgs = Object.entries(details).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`);
+        if (fieldMsgs.length > 0) detailedMsg = fieldMsgs.join(' | ');
+      }
+      setErrorMessage(detailedMsg || err.message || 'Failed to publish assessment.');
+    } finally {
+      setPublishingId(null);
     }
   };
 
@@ -252,7 +271,11 @@ export const AdminAssessmentsPage: React.FC = () => {
                         >
                           <div className="flex items-center gap-1.5">
                             <Users className="w-3.5 h-3.5 text-purple-600" />
-                            <span className="font-bold">{a.assigned_count} Assigned</span>
+                            <span className="font-bold">
+                              {isDraft
+                                ? `${a.eligible_students_count ?? a.assigned_count} Targeted`
+                                : `${a.assigned_count} Assigned`}
+                            </span>
                           </div>
                           {a.target_sections_summary && a.target_sections_summary !== 'None' ? (
                             <span className="text-[10px] text-purple-800 font-mono font-semibold truncate max-w-[150px]" title={a.target_sections_summary}>
@@ -266,19 +289,30 @@ export const AdminAssessmentsPage: React.FC = () => {
                         </button>
                       </td>
                       <td className="px-4 py-3.5 text-right space-x-1 whitespace-nowrap">
-                        <Link to={`/admin/assessments/${a.id}/results`}>
-                          <Button variant="secondary" size="sm" title="Assessment Results & Analytics">
-                            <Award className="w-3.5 h-3.5 mr-1 text-amber-600" />
-                            Results
-                          </Button>
-                        </Link>
+                        {isPublished && (
+                          <>
+                            <Link to={`/admin/assessments/${a.id}/results`}>
+                              <Button variant="secondary" size="sm" title="Assessment Results & Analytics">
+                                <Award className="w-3.5 h-3.5 mr-1 text-amber-600" />
+                                Results
+                              </Button>
+                            </Link>
 
-                        <Link to={`/admin/assessments/${a.id}/proctoring`}>
-                          <Button variant="secondary" size="sm" title="AI Proctoring Dashboard">
-                            <ShieldAlert className="w-3.5 h-3.5 mr-1 text-indigo-600" />
-                            Proctoring
-                          </Button>
-                        </Link>
+                            <Link to={`/admin/assessments/${a.id}/proctoring`}>
+                              <Button variant="secondary" size="sm" title="AI Proctoring Dashboard">
+                                <ShieldAlert className="w-3.5 h-3.5 mr-1 text-indigo-600" />
+                                Proctoring
+                              </Button>
+                            </Link>
+
+                            <Link to={`/admin/assessments/${a.id}/attendance`}>
+                              <Button variant="secondary" size="sm" title="Assessment Attendance & Roster">
+                                <ClipboardList className="w-3.5 h-3.5 mr-1 text-teal-600" />
+                                Attendance
+                              </Button>
+                            </Link>
+                          </>
+                        )}
 
                         <Link to={`/admin/assessments/${a.id}`}>
                           <Button variant="secondary" size="sm" title={isDraft ? "Edit Draft" : "View Assessment"}>
@@ -286,6 +320,19 @@ export const AdminAssessmentsPage: React.FC = () => {
                             {isDraft ? "Edit" : "View"}
                           </Button>
                         </Link>
+
+                        {isDraft && (
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={() => handlePublishFromList(a)}
+                            isLoading={publishingId === a.id}
+                            title="Publish Assessment"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                            Publish
+                          </Button>
+                        )}
 
                         {isPublished && (
                           <Button
@@ -295,17 +342,6 @@ export const AdminAssessmentsPage: React.FC = () => {
                             title="Archive Assessment"
                           >
                             <Archive className="w-3.5 h-3.5 text-slate-500 hover:text-rose-600" />
-                          </Button>
-                        )}
-
-                        {isDraft && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDelete(a.id)}
-                            title="Delete Draft"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-slate-500 hover:text-rose-600" />
                           </Button>
                         )}
                       </td>

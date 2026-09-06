@@ -62,6 +62,7 @@ export interface AssessmentAdminItem {
   end_datetime: string;
   duration_minutes: number;
   total_points: number;
+  passing_percentage?: number;
   attempt_limit: number;
   negative_marking_enabled: boolean;
   randomize_questions: boolean;
@@ -69,6 +70,7 @@ export interface AssessmentAdminItem {
   result_visibility: ResultVisibility;
   question_count: number;
   assigned_count: number;
+  eligible_students_count?: number;
   target_sections_summary?: string;
   audience_summary?: {
     total_eligible: number;
@@ -96,6 +98,7 @@ export interface CreateAssessmentPayload {
   end_datetime: string;
   duration_minutes: number;
   total_points: number;
+  passing_percentage?: number;
   negative_marking_enabled?: boolean;
   attempt_limit?: number;
   randomize_questions?: boolean;
@@ -111,11 +114,16 @@ export interface UpdateAssessmentPayload {
   end_datetime?: string;
   duration_minutes?: number;
   total_points?: number;
+  passing_percentage?: number;
   negative_marking_enabled?: boolean;
   attempt_limit?: number;
   randomize_questions?: boolean;
   randomize_options?: boolean;
   result_visibility?: ResultVisibility;
+  target_section_ids?: string[];
+  target_student_ids?: string[];
+  section_ids?: string[];
+  student_ids?: string[];
 }
 
 export interface AddAssessmentQuestionPayload {
@@ -129,6 +137,8 @@ export interface AddAssessmentQuestionPayload {
 export interface AssessmentAssignmentItem {
   id: string;
   student_id: string;
+  user_id?: string;
+  student_profile_id?: string | null;
   student_email: string;
   student_roll_number?: string | null;
   status: AssignmentStatus;

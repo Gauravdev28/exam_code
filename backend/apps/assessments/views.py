@@ -1,3 +1,4 @@
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from rest_framework import status
@@ -18,7 +19,13 @@ from .models import (
     AttemptStatus,
     AttemptAnswer,
 )
-from .services import AssessmentService, AttemptService, AttemptTimerService, AssessmentAudienceService
+from .services import (
+    AssessmentService,
+    AttemptService,
+    AttemptTimerService,
+    AssessmentAudienceService,
+    AssessmentAttendanceService,
+)
 from .serializers import (
     AssessmentAdminListSerializer,
     AssessmentAdminDetailSerializer,
@@ -164,6 +171,8 @@ class AdminAssessmentDetailView(APIView):
             randomize_questions=data.get('randomize_questions'),
             randomize_options=data.get('randomize_options'),
             result_visibility=data.get('result_visibility'),
+            target_section_ids=data.get('target_section_ids'),
+            target_student_ids=data.get('target_student_ids'),
             request=request
         )
         return APIResponse(
@@ -352,7 +361,8 @@ class AdminAssessmentAssignmentListView(APIView):
             assessment=assessment,
             student_ids=student_ids,
             actor=request.user,
-            request=request
+            request=request,
+            sync_draft_target=True
         )
         return APIResponse(
             data=AssessmentAssignmentSerializer(assignments, many=True).data,
@@ -568,3 +578,74 @@ class StudentAttemptSubmitView(APIView):
             },
             message="Test attempt submitted successfully."
         )
+
+
+class AdminAssessmentAttendanceView(APIView):
+    """
+    Get authoritative derived attendance data, section breakdown, and student roster.
+    GET /api/v1/admin/assessments/<id>/attendance/
+    """
+    permission_classes = [IsAuthenticated, IsActiveUser, IsAdmin]
+
+    def get(self, request, pk):
+        assessment = get_object_or_404(Assessment, id=pk)
+        filters = {
+            'section_id': request.query_params.get('section_id'),
+            'attendance_status': request.query_params.get('attendance_status'),
+            'attempt_status': request.query_params.get('attempt_status'),
+            'search': request.query_params.get('search'),
+        }
+        page = request.query_params.get('page', 1)
+        page_size = request.query_params.get('page_size', 20)
+
+        data = AssessmentAttendanceService.get_attendance_data(
+            assessment=assessment,
+            filters=filters,
+            page=page,
+            page_size=page_size
+        )
+        return APIResponse(data=data)
+
+
+class AdminAssessmentAttendanceExportView(APIView):
+    """
+    Export attendance roster and section breakdown in XLSX or PDF format.
+    GET /api/v1/admin/assessments/<id>/attendance/export/?format=xlsx|pdf
+    """
+    permission_classes = [IsAuthenticated, IsActiveUser, IsAdmin]
+
+    def perform_content_negotiation(self, request, force=False):
+        """
+        Graceful content negotiation: client specifies ?format=xlsx or ?format=pdf
+        for file downloads, but error responses (401, 403, 404) must still render as JSON.
+        """
+        renderers = self.get_renderers()
+        try:
+            return super().perform_content_negotiation(request, force)
+        except Exception:
+            return (renderers[0], renderers[0].media_type)
+
+    def get(self, request, pk):
+        assessment = get_object_or_404(Assessment, id=pk)
+        export_format = request.query_params.get('format', 'xlsx').lower()
+        filters = {
+            'section_id': request.query_params.get('section_id'),
+            'attendance_status': request.query_params.get('attendance_status'),
+            'attempt_status': request.query_params.get('attempt_status'),
+            'search': request.query_params.get('search'),
+        }
+
+        if export_format == 'pdf':
+            pdf_buf = AssessmentAttendanceService.export_attendance_pdf(assessment, filters=filters)
+            response = HttpResponse(pdf_buf.getvalue(), content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="attendance_{assessment.id}.pdf"'
+            return response
+        else:
+            xlsx_buf = AssessmentAttendanceService.export_attendance_xlsx(assessment, filters=filters)
+            response = HttpResponse(
+                xlsx_buf.getvalue(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            response['Content-Disposition'] = f'attachment; filename="attendance_{assessment.id}.xlsx"'
+            return response
+

@@ -20,6 +20,14 @@ interface AssessmentAssignmentsModalProps {
   onAssignmentsUpdated?: () => void;
 }
 
+export const getCanonicalStudentUserId = (student: StudentProfile): string => {
+  return student.user_id || student.id;
+};
+
+export const getCanonicalAssignmentUserId = (assignment: AssessmentAssignmentItem): string => {
+  return assignment.user_id || assignment.student_id;
+};
+
 export const AssessmentAssignmentsModal: React.FC<AssessmentAssignmentsModalProps> = ({
   assessmentId,
   assessmentTitle,
@@ -97,12 +105,12 @@ export const AssessmentAssignmentsModal: React.FC<AssessmentAssignmentsModalProp
   if (!isOpen) return null;
 
   const assignedStudentIdSet = new Set(
-    assignments.filter((a) => a.status === 'ASSIGNED').map((a) => a.student_id)
+    assignments.filter((a) => a.status === 'ASSIGNED').map(getCanonicalAssignmentUserId)
   );
 
   const filteredUnassignedStudents = availableStudents.filter((st) => {
-    const studentUserId = st.user_id || st.id;
-    if (assignedStudentIdSet.has(studentUserId)) return false;
+    const canonicalUserId = getCanonicalStudentUserId(st);
+    if (assignedStudentIdSet.has(canonicalUserId)) return false;
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return (
@@ -187,16 +195,16 @@ export const AssessmentAssignmentsModal: React.FC<AssessmentAssignmentsModalProp
                   </div>
                 ) : (
                   filteredUnassignedStudents.map((st) => {
-                    const studentUserId = st.user_id || st.id;
-                    const isSelected = selectedStudentIds.includes(studentUserId);
+                    const canonicalUserId = getCanonicalStudentUserId(st);
+                    const isSelected = selectedStudentIds.includes(canonicalUserId);
                     return (
                       <div
                         key={st.id}
                         onClick={() => {
                           if (isSelected) {
-                            setSelectedStudentIds(selectedStudentIds.filter((id) => id !== studentUserId));
+                            setSelectedStudentIds(selectedStudentIds.filter((id) => id !== canonicalUserId));
                           } else {
-                            setSelectedStudentIds([...selectedStudentIds, studentUserId]);
+                            setSelectedStudentIds([...selectedStudentIds, canonicalUserId]);
                           }
                         }}
                         className={`flex items-center justify-between p-2.5 cursor-pointer transition-colors ${
@@ -262,7 +270,7 @@ export const AssessmentAssignmentsModal: React.FC<AssessmentAssignmentsModalProp
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleRevoke(a.student_id)}
+                            onClick={() => handleRevoke(getCanonicalAssignmentUserId(a))}
                             title="Revoke Assignment"
                             className="text-slate-400 hover:text-rose-600"
                           >

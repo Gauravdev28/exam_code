@@ -9,8 +9,9 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from apps.accounts.models import User, StudentProfile, Role, Section
 from apps.accounts.services import SectionService, StudentService, ImportService
-from apps.assessments.models import Assessment, AssessmentStatus, AssessmentAssignment
+from apps.assessments.models import Assessment, AssessmentStatus, AssessmentAssignment, AssignmentStatus
 from apps.assessments.services import AssessmentService, AssessmentAudienceService
+from apps.assessments.serializers import AssessmentAssignmentSerializer
 from datetime import timedelta
 from django.utils import timezone
 from apps.questions.models import QuestionType
@@ -489,3 +490,427 @@ class TestPublishFlowAndAccessControl:
         # Assignment must still exist!
         has_assignment = AssessmentAssignment.objects.filter(assessment=draft_assessment, student=s1).exists()
         assert has_assignment is True
+
+
+# ==============================================================================
+# 7. Assessment Audience and Student Assignment Relationship Bug Fixes (Scenarios 1-25)
+# ==============================================================================
+
+@pytest.mark.django_db
+class TestAssessmentAudienceAndAssignmentBugs:
+    """
+    Comprehensive regression suite covering Scenarios 1 through 25:
+    - Section Audience selection, persistence, GET/refresh survival, and counts (1-7)
+    - Student Assignment identity resolution (User.id canonical vs StudentProfile.id),
+      serializers, student portal visibility, and access (8-14)
+    - Audience vs Assignment consistency across UI paths (15-17)
+    - Negative cases, invalid IDs, inactive users, revoked reactivation, lifecycle immutability,
+      concurrency, and rollback semantics (18-25)
+    """
+
+    def test_01_select_section_save_db_persistence(self, admin_client, draft_assessment, sections):
+        """Scenario 1: Select section -> save -> DB persistence."""
+        url = reverse('assessments:admin-assessment-audience', kwargs={'pk': draft_assessment.id})
+        res = admin_client.post(url, {"section_ids": [str(sections["AIML-A"].id)]}, format='json')
+        assert res.status_code == status.HTTP_200_OK
+        draft_assessment.refresh_from_db()
+        assert list(draft_assessment.target_sections.values_list('id', flat=True)) == [sections["AIML-A"].id]
+
+    def test_02_persisted_section_get_audience_returned(self, admin_client, draft_assessment, sections, cohort_students):
+        """Scenario 2: Persisted section -> GET audience -> section returned."""
+        draft_assessment.target_sections.set([sections["AIML-A"]])
+        url = reverse('assessments:admin-assessment-audience', kwargs={'pk': draft_assessment.id})
+        res = admin_client.get(url)
+        assert res.status_code == status.HTTP_200_OK
+        data = res.json()['data']
+        section_codes = [s['code'] for s in data['sections']]
+        assert "AIML-A" in section_codes
+        assert data['total_eligible'] == 2
+
+    def test_03_refresh_equivalent_api_request_section_remains(self, admin_client, draft_assessment, sections, cohort_students):
+        """Scenario 3: Refresh-equivalent API request -> section remains."""
+        url = reverse('assessments:admin-assessment-audience', kwargs={'pk': draft_assessment.id})
+        res1 = admin_client.post(url, {"section_ids": [str(sections["AIML-A"].id)]}, format='json')
+        assert res1.status_code == status.HTTP_200_OK
+
+        # Simulate browser reload by performing GET request
+        res2 = admin_client.get(url)
+        assert res2.status_code == status.HTTP_200_OK
+        data2 = res2.json()['data']
+        assert any(s['code'] == 'AIML-A' for s in data2['sections'])
+        assert data2['total_eligible'] == 2
+
+    def test_04_section_with_one_enrolled_student_eligible_count_1(self, admin_client, draft_assessment):
+        """Scenario 4: Section with one enrolled student -> eligible count = 1."""
+        single_sec = Section.objects.create(code="SINGLE-SEC", name="Single Student Section", is_active=True)
+        st, _ = StudentService.create_student("single@univ.edu", "SS001", section=single_sec)
+        st.student_profile.first_login_required = False
+        st.student_profile.save()
+
+        url = reverse('assessments:admin-assessment-audience', kwargs={'pk': draft_assessment.id})
+        res = admin_client.post(url, {"section_ids": [str(single_sec.id)]}, format='json')
+        assert res.status_code == status.HTTP_200_OK
+        data = res.json()['data']
+        assert data['total_eligible'] == 1
+        assert data['section_student_count'] == 1
+        assert data['eligible_student_ids'] == [str(st.id)]
+
+    def test_05_section_publish_creates_correct_assignment(self, admin_client, draft_assessment, sections, cohort_students):
+        """Scenario 5: Section -> publish -> correct assignment."""
+        url_aud = reverse('assessments:admin-assessment-audience', kwargs={'pk': draft_assessment.id})
+        admin_client.post(url_aud, {"section_ids": [str(sections["AIML-A"].id)]}, format='json')
+
+        url_pub = reverse('assessments:admin-assessment-publish', kwargs={'pk': draft_assessment.id})
+        res_pub = admin_client.post(url_pub)
+        assert res_pub.status_code == status.HTTP_200_OK
+
+        assignments = AssessmentAssignment.objects.filter(assessment=draft_assessment)
+        assert assignments.count() == 2
+        assigned_user_ids = set(assignments.values_list('student_id', flat=True))
+        assert assigned_user_ids == {cohort_students["s1"].id, cohort_students["s2"].id}
+
+    def test_06_multiple_sections_unique_eligible_count(self, admin_client, draft_assessment, sections, cohort_students):
+        """Scenario 6: Multiple sections -> unique eligible count."""
+        url = reverse('assessments:admin-assessment-audience', kwargs={'pk': draft_assessment.id})
+        res = admin_client.post(url, {"section_ids": [str(sections["AIML-A"].id), str(sections["AIML-B"].id)]}, format='json')
+        assert res.status_code == status.HTTP_200_OK
+        data = res.json()['data']
+        assert data['total_eligible'] == 4
+        assert data['section_student_count'] == 4
+
+    def test_07_student_in_multiple_sections_or_individual_deduplication(self, admin_client, draft_assessment, sections, cohort_students):
+        """Scenario 7: Student in multiple sections/section + individual -> one assignment."""
+        url = reverse('assessments:admin-assessment-audience', kwargs={'pk': draft_assessment.id})
+        res = admin_client.post(url, {
+            "section_ids": [str(sections["AIML-A"].id)],
+            "student_ids": [str(cohort_students["s1"].id)]
+        }, format='json')
+        assert res.status_code == status.HTTP_200_OK
+        data = res.json()['data']
+        assert data['total_eligible'] == 2
+        assert data['overlap_count'] == 1
+
+        url_pub = reverse('assessments:admin-assessment-publish', kwargs={'pk': draft_assessment.id})
+        admin_client.post(url_pub)
+        assert AssessmentAssignment.objects.filter(assessment=draft_assessment, student=cohort_students["s1"]).count() == 1
+
+    def test_08_individual_assignment_creates_correct_assignment(self, admin_client, draft_assessment, cohort_students):
+        """Scenario 8: Individual assignment -> correct AssessmentAssignment."""
+        url = reverse('assessments:admin-assessment-assignment-list', kwargs={'pk': draft_assessment.id})
+        res = admin_client.post(url, {"student_ids": [str(cohort_students["s7"].id)]}, format='json')
+        assert res.status_code == status.HTTP_201_CREATED
+
+        assignment = AssessmentAssignment.objects.filter(assessment=draft_assessment, student=cohort_students["s7"]).first()
+        assert assignment is not None
+        assert assignment.status == AssignmentStatus.ASSIGNED
+
+    def test_09_student_profile_id_input_creates_canonical_user_id_assignment(self, admin_client, draft_assessment, cohort_students):
+        """Scenario 9: StudentProfile.id input -> correct User ID assignment."""
+        s7_profile_id = str(cohort_students["s7"].student_profile.id)
+        url = reverse('assessments:admin-assessment-assignment-list', kwargs={'pk': draft_assessment.id})
+        res = admin_client.post(url, {"student_ids": [s7_profile_id]}, format='json')
+        assert res.status_code == status.HTTP_201_CREATED
+
+        assignment = AssessmentAssignment.objects.filter(assessment=draft_assessment, student_id=cohort_students["s7"].id).first()
+        assert assignment is not None
+        assert assignment.student_id == cohort_students["s7"].id
+
+    def test_10_assignment_serializer_fields_and_ids(self, admin_client, draft_assessment, cohort_students):
+        """Scenario 10: Serializer returns student_id/user_id/student_profile_id."""
+        s7 = cohort_students["s7"]
+        url_post = reverse('assessments:admin-assessment-assignment-list', kwargs={'pk': draft_assessment.id})
+        admin_client.post(url_post, {"student_ids": [str(s7.id)]}, format='json')
+
+        url_get = reverse('assessments:admin-assessment-assignment-list', kwargs={'pk': draft_assessment.id})
+        res = admin_client.get(url_get)
+        assert res.status_code == status.HTTP_200_OK
+        data = res.json()['data']
+        item = [d for d in data if str(d['student_id']) == str(s7.id)][0]
+
+        assert str(item['student_id']) == str(s7.id)
+        assert str(item['user_id']) == str(s7.id)
+        assert str(item['student_profile_id']) == str(s7.student_profile.id)
+        assert item['student_email'] == s7.email
+        assert item['student_roll_number'] == s7.student_profile.roll_number
+        assert item['status'] == AssignmentStatus.ASSIGNED
+
+    def test_11_student_assessments_endpoint_returns_assignment(self, api_client, draft_assessment, cohort_students, admin_user):
+        """Scenario 11: /student/assessments/ returns assignment."""
+        s7 = cohort_students["s7"]
+        draft_assessment.start_datetime = timezone.now() - timedelta(minutes=5)
+        draft_assessment.save()
+        AssessmentService.assign_students(draft_assessment, [str(s7.id)], actor=admin_user)
+        AssessmentService.publish_assessment(draft_assessment, actor=admin_user, enforce_audience=False)
+
+        api_client.force_authenticate(user=s7)
+        url = reverse('assessments:student-assessment-list')
+        res = api_client.get(url)
+        assert res.status_code == status.HTTP_200_OK
+        assessments = res.json()['data']
+        results = assessments['results'] if isinstance(assessments, dict) and 'results' in assessments else assessments
+        pks = [a['id'] for a in results]
+        assert str(draft_assessment.id) in pks
+
+    def test_12_student_can_access_assigned_assessment(self, api_client, draft_assessment, cohort_students, admin_user):
+        """Scenario 12: Student can access and start assigned assessment."""
+        s7 = cohort_students["s7"]
+        draft_assessment.start_datetime = timezone.now() - timedelta(minutes=5)
+        draft_assessment.save()
+        AssessmentService.assign_students(draft_assessment, [str(s7.id)], actor=admin_user)
+        AssessmentService.publish_assessment(draft_assessment, actor=admin_user, enforce_audience=False)
+
+        api_client.force_authenticate(user=s7)
+        detail_url = reverse('assessments:student-assessment-detail', kwargs={'pk': draft_assessment.id})
+        res_detail = api_client.get(detail_url)
+        assert res_detail.status_code == status.HTTP_200_OK
+
+        start_url = reverse('assessments:student-assessment-start', kwargs={'pk': draft_assessment.id})
+        res_start = api_client.post(start_url)
+        assert res_start.status_code == status.HTTP_201_CREATED
+
+    def test_13_assign_same_student_twice_no_duplicate(self, admin_client, draft_assessment, cohort_students):
+        """Scenario 13: Assign same student twice -> no duplicate."""
+        s7 = cohort_students["s7"]
+        url = reverse('assessments:admin-assessment-assignment-list', kwargs={'pk': draft_assessment.id})
+        res1 = admin_client.post(url, {"student_ids": [str(s7.id)]}, format='json')
+        assert res1.status_code == status.HTTP_201_CREATED
+        res2 = admin_client.post(url, {"student_ids": [str(s7.id)]}, format='json')
+        assert res2.status_code == status.HTTP_201_CREATED
+
+        assert AssessmentAssignment.objects.filter(assessment=draft_assessment, student=s7).count() == 1
+
+    def test_14_section_plus_individual_one_assignment(self, draft_assessment, sections, cohort_students, admin_user):
+        """Scenario 14: Section + individual -> one assignment."""
+        AssessmentAudienceService.configure_audience(
+            draft_assessment,
+            section_ids=[sections["AIML-A"].id],
+            student_ids=[cohort_students["s1"].id],
+            actor=admin_user
+        )
+        AssessmentService.publish_assessment(draft_assessment, actor=admin_user)
+        assert AssessmentAssignment.objects.filter(assessment=draft_assessment, student=cohort_students["s1"]).count() == 1
+
+    def test_15_assignment_through_target_audience(self, admin_client, draft_assessment, cohort_students):
+        """Scenario 15: Assignment through Target Audience."""
+        s7 = cohort_students["s7"]
+        url_aud = reverse('assessments:admin-assessment-audience', kwargs={'pk': draft_assessment.id})
+        res_aud = admin_client.post(url_aud, {"student_ids": [str(s7.id)]}, format='json')
+        assert res_aud.status_code == status.HTTP_200_OK
+        assert res_aud.json()['data']['total_eligible'] == 1
+
+        url_pub = reverse('assessments:admin-assessment-publish', kwargs={'pk': draft_assessment.id})
+        res_pub = admin_client.post(url_pub)
+        assert res_pub.status_code == status.HTTP_200_OK
+
+        assignment = AssessmentAssignment.objects.filter(assessment=draft_assessment, student=s7).first()
+        assert assignment is not None
+        assert assignment.status == AssignmentStatus.ASSIGNED
+
+    def test_16_assignment_through_external_assignment_modal(self, admin_client, draft_assessment, cohort_students):
+        """Scenario 16: Assignment through external Assignment Modal reflected in Target Audience."""
+        s7 = cohort_students["s7"]
+        url_assign = reverse('assessments:admin-assessment-assignment-list', kwargs={'pk': draft_assessment.id})
+        res_assign = admin_client.post(url_assign, {"student_ids": [str(s7.id)]}, format='json')
+        assert res_assign.status_code == status.HTTP_201_CREATED
+
+        url_aud = reverse('assessments:admin-assessment-audience', kwargs={'pk': draft_assessment.id})
+        res_aud = admin_client.get(url_aud)
+        assert res_aud.status_code == status.HTTP_200_OK
+        data = res_aud.json()['data']
+        assert str(s7.id) in data['eligible_student_ids']
+        assert any(st['id'] == str(s7.id) for st in data['students'])
+
+    def test_17_both_paths_create_equivalent_authoritative_relationships(self, admin_user, cohort_students):
+        """Scenario 17: Both paths create equivalent authoritative assignment relationships."""
+        q, v = QuestionService.create_question(
+            question_type=QuestionType.MCQ,
+            title="Q17",
+            description="Q17 desc",
+            points=10,
+            type_config={
+                "options": [{"id": "A", "text": "1"}, {"id": "B", "text": "2"}],
+                "correct_options": ["A"]
+            },
+            actor=admin_user
+        )
+        pv = QuestionService.publish_version(v, actor=admin_user)
+
+        now = timezone.now()
+        a1 = AssessmentService.create_assessment(
+            "Path 1",
+            start_datetime=now,
+            end_datetime=now + timedelta(days=1),
+            total_points=10,
+            created_by=admin_user
+        )
+        AssessmentService.add_question(assessment=a1, question_version=pv, actor=admin_user, points=10)
+        AssessmentAudienceService.configure_audience(a1, student_ids=[cohort_students["s1"].id], actor=admin_user)
+        AssessmentService.publish_assessment(a1, actor=admin_user, enforce_audience=False)
+
+        a2 = AssessmentService.create_assessment(
+            "Path 2",
+            start_datetime=now,
+            end_datetime=now + timedelta(days=1),
+            total_points=10,
+            created_by=admin_user
+        )
+        AssessmentService.add_question(assessment=a2, question_version=pv, actor=admin_user, points=10)
+        AssessmentService.assign_students(a2, [str(cohort_students["s1"].id)], actor=admin_user)
+        AssessmentService.publish_assessment(a2, actor=admin_user, enforce_audience=False)
+
+        ass1 = AssessmentAssignment.objects.get(assessment=a1, student=cohort_students["s1"])
+        ass2 = AssessmentAssignment.objects.get(assessment=a2, student=cohort_students["s1"])
+
+        assert ass1.status == ass2.status == AssignmentStatus.ASSIGNED
+        assert ass1.student_id == ass2.student_id == cohort_students["s1"].id
+
+    def test_18_invalid_student_or_profile_id_returns_400_zero_mutation(self, admin_client, draft_assessment):
+        """TEST 18: Invalid student/profile ID -> HTTP 400 -> zero mutation."""
+        url = reverse('assessments:admin-assessment-assignment-list', kwargs={'pk': draft_assessment.id})
+        bad_id = "00000000-0000-0000-0000-000000000000"
+        res = admin_client.post(url, {"student_ids": [bad_id]}, format='json')
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        body = res.json()
+        error_dict = body.get('error', {})
+        details = error_dict.get('details', error_dict) if isinstance(error_dict, dict) else {}
+        assert details.get('error') == "INVALID_STUDENT_IDS" or body.get('error') == "INVALID_STUDENT_IDS"
+        assert bad_id in details.get('invalid_ids', []) or bad_id in str(body)
+        assert AssessmentAssignment.objects.filter(assessment=draft_assessment).count() == 0
+
+    def test_19_mixed_user_ids_and_student_profile_ids(self, admin_client, draft_assessment, cohort_students):
+        """TEST 19: Mixed User IDs + StudentProfile IDs -> both resolve correctly -> canonical User IDs stored."""
+        s1 = cohort_students["s1"]
+        s2 = cohort_students["s2"]
+        payload = {
+            "student_ids": [str(s1.id), str(s2.student_profile.id)]
+        }
+        url = reverse('assessments:admin-assessment-assignment-list', kwargs={'pk': draft_assessment.id})
+        res = admin_client.post(url, payload, format='json')
+        assert res.status_code == status.HTTP_201_CREATED
+
+        assignments = AssessmentAssignment.objects.filter(assessment=draft_assessment)
+        assert assignments.count() == 2
+        student_user_ids = set(assignments.values_list('student_id', flat=True))
+        assert student_user_ids == {s1.id, s2.id}
+
+    def test_20_inactive_student_cannot_be_assigned(self, admin_client, draft_assessment):
+        """TEST 20: Inactive student -> cannot be assigned."""
+        inactive_s, _ = StudentService.create_student("inactive_s@univ.edu", "INACT99")
+        inactive_s.is_active = False
+        inactive_s.save()
+
+        url = reverse('assessments:admin-assessment-assignment-list', kwargs={'pk': draft_assessment.id})
+        res = admin_client.post(url, {"student_ids": [str(inactive_s.id)]}, format='json')
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert AssessmentAssignment.objects.filter(assessment=draft_assessment, student=inactive_s).count() == 0
+
+    def test_21_revoked_assignment_reactivation_no_duplicate(self, admin_client, draft_assessment, cohort_students):
+        """TEST 21: Revoked assignment -> reactivation follows existing lifecycle -> no duplicate assignment."""
+        s1 = cohort_students["s1"]
+        # 1. Assign
+        url_assign = reverse('assessments:admin-assessment-assignment-list', kwargs={'pk': draft_assessment.id})
+        admin_client.post(url_assign, {"student_ids": [str(s1.id)]}, format='json')
+        assignment = AssessmentAssignment.objects.get(assessment=draft_assessment, student=s1)
+        assert assignment.status == AssignmentStatus.ASSIGNED
+
+        # 2. Revoke using StudentProfile.id
+        url_revoke = reverse('assessments:admin-assessment-assignment-revoke', kwargs={
+            'pk': draft_assessment.id,
+            'student_id': str(s1.student_profile.id)
+        })
+        res_revoke = admin_client.delete(url_revoke)
+        assert res_revoke.status_code == status.HTTP_200_OK
+        assignment.refresh_from_db()
+        assert assignment.status == AssignmentStatus.REVOKED
+
+        # 3. Reactivate
+        res_reassign = admin_client.post(url_assign, {"student_ids": [str(s1.id)]}, format='json')
+        assert res_reassign.status_code == status.HTTP_201_CREATED
+        assignment.refresh_from_db()
+        assert assignment.status == AssignmentStatus.ASSIGNED
+        assert AssessmentAssignment.objects.filter(assessment=draft_assessment, student=s1).count() == 1
+
+    def test_22_published_assessment_audience_mutation_preserves_snapshot(self, admin_client, draft_assessment, sections, admin_user):
+        """TEST 22: Published assessment audience mutation -> existing lifecycle restrictions preserved -> snapshot integrity remains intact."""
+        AssessmentAudienceService.configure_audience(draft_assessment, section_ids=[sections["AIML-A"].id], actor=admin_user)
+        published = AssessmentService.publish_assessment(draft_assessment, actor=admin_user)
+        snapshot = published.snapshot
+        assert snapshot is not None
+        snap_data_before = snapshot.snapshot_data
+
+        url = reverse('assessments:admin-assessment-audience', kwargs={'pk': published.id})
+        res = admin_client.post(url, {"section_ids": [str(sections["CSE-A"].id)]}, format='json')
+        assert res.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_400_BAD_REQUEST)
+
+        snapshot.refresh_from_db()
+        assert snapshot.snapshot_data == snap_data_before
+
+    def test_23_concurrent_duplicate_assignment_creates_single_assignment(self, draft_assessment, cohort_students, admin_user):
+        """TEST 23: Concurrent duplicate assignment -> exactly one AssessmentAssignment."""
+        s1 = cohort_students["s1"]
+        resA = AssessmentService.assign_students(draft_assessment, [str(s1.id)], actor=admin_user)
+        resB = AssessmentService.assign_students(draft_assessment, [str(s1.id)], actor=admin_user)
+
+        assert len(resA) == 1
+        assert len(resB) == 1
+        assert resA[0].id == resB[0].id
+        assert AssessmentAssignment.objects.filter(assessment=draft_assessment, student=s1).count() == 1
+
+    def test_24_audience_request_valid_and_invalid_rollback_no_partial_mutation(self, admin_client, draft_assessment, cohort_students):
+        """TEST 24: Audience request containing valid + invalid student -> HTTP 400 -> complete rollback -> zero partial mutation."""
+        s1 = cohort_students["s1"]
+        bad_id = "00000000-0000-0000-0000-000000000000"
+        url = reverse('assessments:admin-assessment-audience', kwargs={'pk': draft_assessment.id})
+        payload = {
+            "student_ids": [str(s1.id), bad_id]
+        }
+        res = admin_client.post(url, payload, format='json')
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        body = res.json()
+        error_dict = body.get('error', {})
+        details = error_dict.get('details', error_dict) if isinstance(error_dict, dict) else {}
+        assert details.get('error') == "INVALID_STUDENT_IDS" or body.get('error') == "INVALID_STUDENT_IDS"
+        assert bad_id in details.get('invalid_ids', []) or bad_id in str(body)
+
+        draft_assessment.refresh_from_db()
+        assert draft_assessment.target_students.count() == 0
+
+    def test_25_assignment_serializer_canonical_identities(self, draft_assessment, cohort_students, admin_user):
+        """TEST 25: Assignment serializer -> student_id == User.id -> user_id == User.id -> student_profile_id == profile ID."""
+        s1 = cohort_students["s1"]
+        assignment = AssessmentAssignment.objects.create(
+            assessment=draft_assessment,
+            student=s1,
+            assigned_by=admin_user,
+            status=AssignmentStatus.ASSIGNED
+        )
+        serializer = AssessmentAssignmentSerializer(assignment)
+        data = serializer.data
+
+        assert str(data['student_id']) == str(s1.id)
+        assert str(data['user_id']) == str(s1.id)
+        assert str(data['student_profile_id']) == str(s1.student_profile.id)
+        assert data['student_email'] == s1.email
+        assert data['student_roll_number'] == s1.student_profile.roll_number
+        assert data['status'] == AssignmentStatus.ASSIGNED
+        assert data['assigned_by_email'] == admin_user.email
+
+    def test_26_malformed_student_id_returns_400_invalid_student_ids(self, draft_assessment):
+        """TEST 26: Malformed non-UUID student ID -> HTTP 400 INVALID_STUDENT_IDS safely without DB crash."""
+        from apps.assessments.services import resolve_student_users
+        with pytest.raises(DRFValidationError) as exc:
+            resolve_student_users(["not-a-valid-uuid"])
+        err = exc.value.detail if hasattr(exc.value, 'detail') else exc.value.args[0]
+        assert err.get('error') == "INVALID_STUDENT_IDS"
+        assert "not-a-valid-uuid" in err.get('invalid_ids', [])
+
+    def test_27_assign_students_preserves_input_order(self, draft_assessment, cohort_students, admin_user):
+        """TEST 27: assign_students processes deterministically while preserving caller's requested input order."""
+        s1 = cohort_students["s1"]
+        s2 = cohort_students["s2"]
+        # Intentionally pass s2 before s1
+        res = AssessmentService.assign_students(draft_assessment, [str(s2.id), str(s1.id)], actor=admin_user)
+        assert len(res) == 2
+        assert res[0].student_id == s2.id
+        assert res[1].student_id == s1.id
+

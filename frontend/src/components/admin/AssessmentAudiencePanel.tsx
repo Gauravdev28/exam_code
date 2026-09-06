@@ -30,6 +30,7 @@ interface AssessmentAudiencePanelProps {
   isLocked: boolean;
   onAudienceChanged?: (resolution: AudienceResolution) => void;
   onValidationChange?: (isValid: boolean, totalEligible: number) => void;
+  onSelectionChange?: (sectionIds: string[], studentIds: string[]) => void;
 }
 
 export const AssessmentAudiencePanel: React.FC<AssessmentAudiencePanelProps> = ({
@@ -37,7 +38,17 @@ export const AssessmentAudiencePanel: React.FC<AssessmentAudiencePanelProps> = (
   isLocked,
   onAudienceChanged,
   onValidationChange,
+  onSelectionChange,
 }) => {
+  const onAudienceChangedRef = React.useRef(onAudienceChanged);
+  onAudienceChangedRef.current = onAudienceChanged;
+
+  const onValidationChangeRef = React.useRef(onValidationChange);
+  onValidationChangeRef.current = onValidationChange;
+
+  const onSelectionChangeRef = React.useRef(onSelectionChange);
+  onSelectionChangeRef.current = onSelectionChange;
+
   const [sections, setSections] = useState<Section[]>([]);
   const [selectedSectionIds, setSelectedSectionIds] = useState<string[]>([]);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
@@ -62,7 +73,7 @@ export const AssessmentAudiencePanel: React.FC<AssessmentAudiencePanelProps> = (
       .catch(() => {});
   }, []);
 
-  // Initial load: existing audience for assessment
+  // Initial load: existing audience for assessment (strictly dependent on assessmentId)
   useEffect(() => {
     if (!assessmentId) return;
 
@@ -74,9 +85,7 @@ export const AssessmentAudiencePanel: React.FC<AssessmentAudiencePanelProps> = (
           setResolution(r);
           setSelectedSectionIds(r.sections.map((s) => s.id));
           setSelectedStudentIds(r.additional_students.map((s) => s.id));
-          if (onValidationChange) {
-            onValidationChange(r.total_eligible > 0, r.total_eligible);
-          }
+          onValidationChangeRef.current?.(r.total_eligible > 0, r.total_eligible);
         }
       })
       .catch((err: any) => {
@@ -85,7 +94,7 @@ export const AssessmentAudiencePanel: React.FC<AssessmentAudiencePanelProps> = (
       .finally(() => {
         setIsLoading(false);
       });
-  }, [assessmentId, onValidationChange]);
+  }, [assessmentId]);
 
   // Load students for picker when opened
   useEffect(() => {
@@ -98,7 +107,7 @@ export const AssessmentAudiencePanel: React.FC<AssessmentAudiencePanelProps> = (
     }
   }, [isStudentPickerOpen, availableStudents.length]);
 
-  // Preview audience whenever selections change
+  // Preview audience whenever selections change without re-fetching saved audience
   const runPreview = useCallback(
     async (secIds: string[], stuIds: string[]) => {
       if (!assessmentId) return;
@@ -109,16 +118,18 @@ export const AssessmentAudiencePanel: React.FC<AssessmentAudiencePanelProps> = (
         });
         if (res.data) {
           setResolution(res.data);
-          if (onValidationChange) {
-            onValidationChange(res.data.total_eligible > 0, res.data.total_eligible);
-          }
+          onValidationChangeRef.current?.(res.data.total_eligible > 0, res.data.total_eligible);
         }
       } catch (err: any) {
         console.error('Failed to preview audience resolution:', err);
       }
     },
-    [assessmentId, onValidationChange]
+    [assessmentId]
   );
+
+  useEffect(() => {
+    onSelectionChangeRef.current?.(selectedSectionIds, selectedStudentIds);
+  }, [selectedSectionIds, selectedStudentIds]);
 
   const handleToggleSection = (sectionId: string) => {
     if (isLocked) return;
@@ -178,11 +189,11 @@ export const AssessmentAudiencePanel: React.FC<AssessmentAudiencePanelProps> = (
       });
       if (res.data) {
         setResolution(res.data);
+        setSelectedSectionIds(res.data.sections.map((s) => s.id));
+        setSelectedStudentIds(res.data.additional_students.map((s) => s.id));
         setSaveSuccess(true);
-        if (onAudienceChanged) onAudienceChanged(res.data);
-        if (onValidationChange) {
-          onValidationChange(res.data.total_eligible > 0, res.data.total_eligible);
-        }
+        onAudienceChangedRef.current?.(res.data);
+        onValidationChangeRef.current?.(res.data.total_eligible > 0, res.data.total_eligible);
         setTimeout(() => setSaveSuccess(false), 3000);
       }
     } catch (err: any) {

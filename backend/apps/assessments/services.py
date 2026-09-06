@@ -1,8 +1,11 @@
+import io
 import random
 import secrets
+import uuid
 from datetime import timedelta
 from typing import List, Dict, Any, Optional, Tuple
 from django.db import models, transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.core.exceptions import PermissionDenied, ValidationError as DjangoValidationError
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -375,6 +378,85 @@ class AssessmentSnapshotService:
         return snapshot
 
 
+def resolve_student_users(student_ids: Any, active_only: bool = True) -> List[User]:
+    """
+    Centralized student identity resolver for the assessment domain.
+    Resolves both canonical User.id and legacy/API StudentProfile.id into canonical User objects.
+    Enforces Role.STUDENT, presence of StudentProfile, and active status.
+    Raises DRFValidationError (HTTP 400) if any supplied ID cannot be resolved or is invalid.
+    """
+    if not student_ids:
+        return []
+
+    clean_ids = [str(sid).strip() for sid in student_ids if sid and str(sid).strip()]
+    if not clean_ids:
+        return []
+
+    valid_uuid_ids = []
+    malformed_ids = []
+    for sid in clean_ids:
+        try:
+            uuid_obj = uuid.UUID(sid)
+            valid_uuid_ids.append(str(uuid_obj))
+        except (ValueError, AttributeError):
+            malformed_ids.append(sid)
+
+    if malformed_ids:
+        raise DRFValidationError({
+            "error": "INVALID_STUDENT_IDS",
+            "invalid_ids": malformed_ids,
+            "students": f"Account(s) {', '.join(malformed_ids)} cannot be targeted as a student (must be valid student IDs).",
+            "detail": f"The following student ID(s) cannot be targeted as a student: {', '.join(malformed_ids)}"
+        })
+
+    candidate_users = list(
+        User.objects.filter(
+            Q(id__in=valid_uuid_ids) | Q(student_profile__id__in=valid_uuid_ids)
+        )
+        .select_related('student_profile', 'student_profile__section')
+        .distinct()
+    )
+
+    resolved_id_map: Dict[str, User] = {}
+    invalid_ids = []
+
+    for sid in clean_ids:
+        matched_user = None
+        for u in candidate_users:
+            profile_id = str(u.student_profile.id) if hasattr(u, 'student_profile') and u.student_profile else None
+            if str(u.id) == sid or profile_id == sid:
+                matched_user = u
+                break
+
+        if not matched_user:
+            invalid_ids.append(sid)
+        elif matched_user.role != Role.STUDENT:
+            invalid_ids.append(sid)
+        elif active_only and not matched_user.is_active:
+            invalid_ids.append(sid)
+        else:
+            resolved_id_map[sid] = matched_user
+
+    if invalid_ids:
+        raise DRFValidationError({
+            "error": "INVALID_STUDENT_IDS",
+            "invalid_ids": invalid_ids,
+            "students": f"Account(s) {', '.join(invalid_ids)} cannot be targeted as a student (must be active student accounts).",
+            "detail": f"The following student ID(s) cannot be targeted as a student: {', '.join(invalid_ids)}"
+        })
+
+    # Return deduplicated canonical User objects preserving caller order
+    seen_user_ids = set()
+    canonical_users = []
+    for sid in clean_ids:
+        u = resolved_id_map[sid]
+        if str(u.id) not in seen_user_ids:
+            seen_user_ids.add(str(u.id))
+            canonical_users.append(u)
+
+    return canonical_users
+
+
 class AssessmentAudienceService:
     """
     Authoritative domain service for resolving and configuring assessment audience targeting.
@@ -398,7 +480,9 @@ class AssessmentAudienceService:
             section_ids = [str(sid) for sid in section_ids if sid]
 
         if student_ids is None:
-            student_ids = [str(uid) for uid in assessment.target_students.values_list('id', flat=True)]
+            target_ids = set(assessment.target_students.values_list('id', flat=True))
+            assigned_ids = set(assessment.assignments.filter(status=AssignmentStatus.ASSIGNED).values_list('student_id', flat=True))
+            student_ids = [str(uid) for uid in target_ids.union(assigned_ids)]
         else:
             student_ids = [str(uid) for uid in student_ids if uid]
 
@@ -424,18 +508,8 @@ class AssessmentAudienceService:
                 "student_count": count
             })
 
-        # 2. Resolve Individually Targeted Students
-        individual_students = list(User.objects.filter(
-            id__in=student_ids
-        ).select_related('student_profile', 'student_profile__section'))
-
-        # Server-authoritative validation: each individual must be an active eligible student
-        for st in individual_students:
-            if st.role != Role.STUDENT or not hasattr(st, 'student_profile') or not st.is_active:
-                raise DRFValidationError({
-                    "target_students": f"Account '{st.email}' cannot be targeted as a student (role: {st.role}, active: {st.is_active})."
-                })
-
+        # 2. Resolve Individually Targeted Students using canonical resolver
+        individual_students = resolve_student_users(student_ids, active_only=True)
         individual_student_ids = {str(st.id) for st in individual_students}
 
         additional_students_summary = []
@@ -443,6 +517,8 @@ class AssessmentAudienceService:
             profile = getattr(st, 'student_profile', None)
             additional_students_summary.append({
                 "id": str(st.id),
+                "user_id": str(st.id),
+                "student_profile_id": str(profile.id) if profile else None,
                 "email": st.email,
                 "display_name": st.display_name,
                 "roll_number": profile.roll_number if profile else "",
@@ -497,15 +573,8 @@ class AssessmentAudienceService:
             if not sec.is_active:
                 raise DRFValidationError({"sections": f"Inactive section '{sec.code}' cannot be targeted."})
 
-        # Validate individual students exist and are active students
-        students = list(User.objects.filter(id__in=clean_student_ids))
-        if len(students) != len(set(clean_student_ids)):
-            raise DRFValidationError({"students": "One or more selected students do not exist."})
-        for st in students:
-            if st.role != Role.STUDENT or not hasattr(st, 'student_profile') or not st.is_active:
-                raise DRFValidationError({
-                    "students": f"Account '{st.email}' cannot be targeted as a student (role: {st.role}, active: {st.is_active})."
-                })
+        # Validate and resolve individual students using canonical resolver
+        students = resolve_student_users(clean_student_ids, active_only=True)
 
         with transaction.atomic():
             assessment.target_sections.set(sections)
@@ -625,6 +694,8 @@ class AssessmentService:
         randomize_options: Optional[bool] = None,
         passing_percentage = None,
         result_visibility: Optional[str] = None,
+        target_section_ids: Optional[List[Any]] = None,
+        target_student_ids: Optional[List[Any]] = None,
         request=None
     ) -> Assessment:
         if assessment.status in [AssessmentStatus.PUBLISHED, AssessmentStatus.ARCHIVED]:
@@ -665,6 +736,18 @@ class AssessmentService:
             raise DRFValidationError({"end_datetime": "End datetime must be strictly after start datetime."})
 
         assessment.save()
+
+        # Atomic draft audience persistence if audience is supplied
+        if target_section_ids is not None or target_student_ids is not None:
+            sec_ids = target_section_ids if target_section_ids is not None else list(assessment.target_sections.values_list('id', flat=True))
+            stu_ids = target_student_ids if target_student_ids is not None else list(assessment.target_students.values_list('id', flat=True))
+            AssessmentAudienceService.configure_audience(
+                assessment=assessment,
+                section_ids=sec_ids,
+                student_ids=stu_ids,
+                actor=actor,
+                request=request
+            )
 
         AuditService.log(
             action="ASSESSMENT_UPDATED",
@@ -854,12 +937,35 @@ class AssessmentService:
 
     @classmethod
     @transaction.atomic
-    def assign_students(cls, assessment: Assessment, student_ids: List[str], actor: User, request=None) -> List[AssessmentAssignment]:
-        students = User.objects.filter(id__in=student_ids, is_active=True)
-        assignments = []
+    def assign_students(
+        cls,
+        assessment: Assessment,
+        student_ids: List[str],
+        actor: User,
+        request=None,
+        sync_draft_target: bool = False
+    ) -> List[AssessmentAssignment]:
+        if not student_ids:
+            raise DRFValidationError({"student_ids": "At least one student ID is required."})
 
-        for st in students:
-            assignment, created = AssessmentAssignment.objects.get_or_create(
+        # 1. Resolve & validate all student IDs BEFORE acquiring locks or mutating state
+        resolved_students = resolve_student_users(student_ids, active_only=True)
+        if not resolved_students:
+            raise DRFValidationError({
+                "error": "INVALID_STUDENT_IDS",
+                "invalid_ids": student_ids,
+                "detail": "None of the requested student IDs could be resolved to active students."
+            })
+
+        # 2. Lock the assessment row to serialize concurrent assignment/publish races
+        assessment = Assessment.objects.select_for_update().get(id=assessment.id)
+
+        # 3. Sort students deterministically by User.id to establish consistent lock ordering and avoid deadlocks
+        sorted_students = sorted(resolved_students, key=lambda u: str(u.id))
+
+        assignment_map = {}
+        for st in sorted_students:
+            assignment, created = AssessmentAssignment.objects.select_for_update().get_or_create(
                 assessment=assessment,
                 student=st,
                 defaults={"assigned_by": actor, "status": AssignmentStatus.ASSIGNED}
@@ -869,7 +975,7 @@ class AssessmentService:
                 assignment.assigned_by = actor
                 assignment.save(update_fields=['status', 'assigned_by', 'updated_at'])
 
-            assignments.append(assignment)
+            assignment_map[st.id] = assignment
             AuditService.log(
                 action="ASSESSMENT_ASSIGNMENT_CREATED",
                 actor=actor,
@@ -879,24 +985,50 @@ class AssessmentService:
                 request=request
             )
 
-        return assignments
+        # In DRAFT status, synchronize explicit targeting intent only if requested (not during publish)
+        if sync_draft_target and assessment.status == AssessmentStatus.DRAFT:
+            assessment.target_students.add(*resolved_students)
+
+        # Return assignments in caller's requested input order
+        return [assignment_map[st.id] for st in resolved_students if st.id in assignment_map]
 
     @classmethod
     @transaction.atomic
     def revoke_assignment(cls, assessment: Assessment, student_id: str, actor: User, request=None) -> AssessmentAssignment:
-        assignment = AssessmentAssignment.objects.filter(assessment=assessment, student_id=student_id).first()
+        student_id_str = str(student_id).strip()
+        # 1. Resolve to canonical User before acquiring locks
+        try:
+            resolved = resolve_student_users([student_id_str], active_only=False)
+            student_user = resolved[0] if resolved else None
+        except DRFValidationError:
+            student_user = None
+
+        if not student_user:
+            raise DRFValidationError({"student": "Assignment does not exist for this student."})
+
+        # 2. Lock assessment row first to adhere to uniform lock hierarchy
+        assessment = Assessment.objects.select_for_update().get(id=assessment.id)
+
+        # 3. Lock specific assignment row
+        assignment = AssessmentAssignment.objects.select_for_update().filter(
+            assessment=assessment,
+            student=student_user
+        ).first()
         if not assignment:
             raise DRFValidationError({"student": "Assignment does not exist for this student."})
 
         assignment.status = AssignmentStatus.REVOKED
         assignment.save(update_fields=['status', 'updated_at'])
 
+        if assessment.status == AssessmentStatus.DRAFT:
+            assessment.target_students.remove(student_user)
+
         AuditService.log(
             action="ASSESSMENT_ASSIGNMENT_REVOKED",
             actor=actor,
             target_type="AssessmentAssignment",
             target_id=str(assignment.id),
-            metadata={"assessment_id": str(assessment.id), "student_id": student_id},
+            metadata={"assessment_id": str(assessment.id), "student_id": str(student_user.id)},
             request=request
         )
         return assignment
@@ -1182,3 +1314,370 @@ class AttemptService:
             pass
 
         return attempt
+
+
+def _sanitize_formula_injection(value: Any) -> Any:
+    """
+    Neutralizes CSV / Spreadsheet Formula Injection (CWE-1236).
+    If a string starts with =, +, -, @, \\t, or \\r, prepends a single quote (').
+    """
+    if isinstance(value, str) and value:
+        if value[0] in ('=', '+', '-', '@', '\t', '\r'):
+            return f"'{value}"
+    return value
+
+
+class AssessmentAttendanceService:
+    """
+    Authoritative derived attendance service for CODEGUARD assessments.
+    Consumes AssessmentAssignment, TestAttempt, and StudentProfile.section.
+    No redundant attendance database table is created.
+    """
+
+    @classmethod
+    def get_attendance_data(
+        cls,
+        assessment: Assessment,
+        filters: Optional[Dict[str, Any]] = None,
+        page: int = 1,
+        page_size: int = 20
+    ) -> Dict[str, Any]:
+        filters = filters or {}
+        section_filter = filters.get('section_id')
+        attendance_filter = filters.get('attendance_status')
+        attempt_filter = filters.get('attempt_status')
+        search = (filters.get('search') or '').strip().lower()
+
+        # Authoritative query for active assignments
+        assignments_qs = AssessmentAssignment.objects.filter(
+            assessment=assessment,
+            status=AssignmentStatus.ASSIGNED
+        ).select_related(
+            'student',
+            'student__student_profile',
+            'student__student_profile__section'
+        ).prefetch_related(
+            models.Prefetch(
+                'student__test_attempts',
+                queryset=TestAttempt.objects.filter(assessment=assessment).order_by('-attempt_number', '-created_at')
+            )
+        ).order_by('student__student_profile__roll_number', 'student__email')
+
+        student_records = []
+        for a in assignments_qs:
+            student = a.student
+            profile = getattr(student, 'student_profile', None)
+            section = getattr(profile, 'section', None)
+            section_name = section.name if section else 'Unassigned'
+            section_id = str(section.id) if section else None
+
+            attempts = list(student.test_attempts.all())
+
+            # Primary attendance rule:
+            # If any attempt has started_at is not None -> ATTENDED, else NOT_ATTENDED
+            has_started = any(att.started_at is not None for att in attempts)
+            attendance_status = 'ATTENDED' if has_started else 'NOT_ATTENDED'
+
+            latest_att = attempts[0] if attempts else None
+            attempt_status = latest_att.status if latest_att else AttemptStatus.NOT_STARTED
+
+            started_at_str = latest_att.started_at.isoformat() if (latest_att and latest_att.started_at) else None
+            submitted_at_str = latest_att.submitted_at.isoformat() if (latest_att and latest_att.submitted_at) else None
+
+            duration_seconds = None
+            if latest_att and latest_att.started_at and latest_att.submitted_at:
+                duration_seconds = max(0, int((latest_att.submitted_at - latest_att.started_at).total_seconds()))
+
+            record = {
+                "student_id": str(student.id),
+                "student_name": getattr(student, 'display_name', '') or student.email,
+                "email": student.email,
+                "roll_number": getattr(profile, 'roll_number', '') if profile else '',
+                "euid": getattr(profile, 'euid', '') if profile else '',
+                "section": section_name,
+                "section_id": section_id,
+                "assignment_status": a.status,
+                "attendance_status": attendance_status,
+                "attempt_status": attempt_status,
+                "started_at": started_at_str,
+                "submitted_at": submitted_at_str,
+                "duration_seconds": duration_seconds,
+                "attempts_count": len(attempts),
+            }
+            student_records.append(record)
+
+        # Apply filtering
+        filtered_records = []
+        for r in student_records:
+            if section_filter and section_filter != 'ALL':
+                if section_filter == 'unassigned':
+                    if r['section_id'] is not None:
+                        continue
+                elif r['section_id'] != str(section_filter):
+                    continue
+
+            if attendance_filter and attendance_filter != 'ALL':
+                if r['attendance_status'] != attendance_filter:
+                    continue
+
+            if attempt_filter and attempt_filter != 'ALL':
+                if r['attempt_status'] != attempt_filter:
+                    continue
+
+            if search:
+                target_str = f"{r['student_name']} {r['email']} {r['roll_number']} {r['euid']}".lower()
+                if search not in target_str:
+                    continue
+
+            filtered_records.append(r)
+
+        # Compute summary metrics on complete FILTERED dataset before pagination
+        total_assigned = len(filtered_records)
+        total_attended = sum(1 for r in filtered_records if r['attendance_status'] == 'ATTENDED')
+        total_not_attended = total_assigned - total_attended
+        total_in_progress = sum(1 for r in filtered_records if r['attempt_status'] == AttemptStatus.IN_PROGRESS)
+        total_submitted = sum(1 for r in filtered_records if r['attempt_status'] in [AttemptStatus.SUBMITTED, AttemptStatus.EXPIRED])
+        attendance_percentage = round((total_attended / total_assigned * 100), 1) if total_assigned > 0 else 0.0
+        is_pre_exam = assessment.start_datetime > timezone.now()
+
+        # Section Breakdown
+        from collections import OrderedDict
+        section_groups = OrderedDict()
+        for r in filtered_records:
+            sec_key = r['section_id'] or 'unassigned'
+            if sec_key not in section_groups:
+                section_groups[sec_key] = {
+                    "section_id": r['section_id'],
+                    "section_name": r['section'],
+                    "assigned": 0,
+                    "attended": 0,
+                    "not_attended": 0,
+                    "in_progress": 0,
+                    "submitted": 0,
+                    "attendance_percentage": 0.0,
+                }
+            grp = section_groups[sec_key]
+            grp["assigned"] += 1
+            if r['attendance_status'] == 'ATTENDED':
+                grp["attended"] += 1
+            else:
+                grp["not_attended"] += 1
+            if r['attempt_status'] == AttemptStatus.IN_PROGRESS:
+                grp["in_progress"] += 1
+            elif r['attempt_status'] in [AttemptStatus.SUBMITTED, AttemptStatus.EXPIRED]:
+                grp["submitted"] += 1
+
+        for grp in section_groups.values():
+            if grp["assigned"] > 0:
+                grp["attendance_percentage"] = round((grp["attended"] / grp["assigned"] * 100), 1)
+
+        # Pagination for table rows
+        try:
+            p = max(1, int(page))
+        except (TypeError, ValueError):
+            p = 1
+        try:
+            ps = max(1, min(100, int(page_size)))
+        except (TypeError, ValueError):
+            ps = 20
+
+        start_idx = (p - 1) * ps
+        end_idx = start_idx + ps
+        paginated_rows = filtered_records[start_idx:end_idx]
+
+        return {
+            "assessment": {
+                "id": str(assessment.id),
+                "title": assessment.title,
+                "status": assessment.status,
+                "start_datetime": assessment.start_datetime.isoformat(),
+                "end_datetime": assessment.end_datetime.isoformat(),
+                "duration_minutes": assessment.duration_minutes,
+                "is_pre_exam": is_pre_exam,
+            },
+            "summary": {
+                "total_assigned": total_assigned,
+                "total_attended": total_attended,
+                "total_not_attended": total_not_attended,
+                "total_in_progress": total_in_progress,
+                "total_submitted": total_submitted,
+                "attendance_percentage": attendance_percentage,
+                "is_pre_exam": is_pre_exam,
+            },
+            "sections": list(section_groups.values()),
+            "results": paginated_rows,
+            "total_count": total_assigned,
+            "page": p,
+            "page_size": ps,
+        }
+
+    @classmethod
+    def export_attendance_xlsx(cls, assessment: Assessment, filters: Optional[Dict[str, Any]] = None) -> io.BytesIO:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+        data = cls.get_attendance_data(assessment, filters=filters, page=1, page_size=100000)
+        summary = data['summary']
+        records = data['results']
+        sections = data['sections']
+
+        wb = openpyxl.Workbook()
+        ws_roster = wb.active
+        ws_roster.title = "Attendance Roster"
+
+        header_font = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
+        header_fill = PatternFill(start_color='1E293B', end_color='1E293B', fill_type='solid')
+
+        headers = [
+            "Student Name", "Roll Number", "Email", "Section",
+            "Assignment Status", "Attendance Status", "Attempt Status",
+            "Started At", "Submitted At", "Time Used (s)"
+        ]
+        ws_roster.append([_sanitize_formula_injection(h) for h in headers])
+        for col_num in range(1, len(headers) + 1):
+            cell = ws_roster.cell(row=1, column=col_num)
+            cell.font = header_font
+            cell.fill = header_fill
+
+        for r in records:
+            ws_roster.append([
+                _sanitize_formula_injection(r['student_name']),
+                _sanitize_formula_injection(r['roll_number']),
+                _sanitize_formula_injection(r['email']),
+                _sanitize_formula_injection(r['section']),
+                _sanitize_formula_injection(r['assignment_status']),
+                _sanitize_formula_injection(r['attendance_status']),
+                _sanitize_formula_injection(r['attempt_status']),
+                r['started_at'] or '',
+                r['submitted_at'] or '',
+                r['duration_seconds'] if r['duration_seconds'] is not None else ''
+            ])
+
+        ws_sections = wb.create_sheet(title="Section Summary")
+        sec_headers = ["Section", "Assigned", "Attended", "Not Attended", "In Progress", "Submitted", "Attendance %"]
+        ws_sections.append([_sanitize_formula_injection(h) for h in sec_headers])
+        for col_num in range(1, len(sec_headers) + 1):
+            cell = ws_sections.cell(row=1, column=col_num)
+            cell.font = header_font
+            cell.fill = header_fill
+
+        for sec in sections:
+            ws_sections.append([
+                _sanitize_formula_injection(sec['section_name']),
+                sec['assigned'],
+                sec['attended'],
+                sec['not_attended'],
+                sec['in_progress'],
+                sec['submitted'],
+                sec['attendance_percentage']
+            ])
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return output
+
+    @classmethod
+    def export_attendance_pdf(cls, assessment: Assessment, filters: Optional[Dict[str, Any]] = None) -> io.BytesIO:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib import colors
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+        data = cls.get_attendance_data(assessment, filters=filters, page=1, page_size=100000)
+        summary = data['summary']
+        records = data['results']
+        sections = data['sections']
+
+        output = io.BytesIO()
+        doc = SimpleDocTemplate(output, pagesize=letter, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
+        styles = getSampleStyleSheet()
+        story = []
+
+        title_style = ParagraphStyle(
+            'TitleStyle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            textColor=colors.HexColor('#0F172A'),
+            spaceAfter=6
+        )
+        subtitle_style = ParagraphStyle(
+            'SubtitleStyle',
+            parent=styles['Normal'],
+            fontSize=10,
+            textColor=colors.HexColor('#475569'),
+            spaceAfter=14
+        )
+
+        story.append(Paragraph("CODEGUARD Assessment Attendance Report", title_style))
+        pre_exam_tag = " (Pre-Exam / Scheduled)" if summary['is_pre_exam'] else ""
+        story.append(Paragraph(f"Assessment: {assessment.title}{pre_exam_tag}", subtitle_style))
+
+        meta_data = [
+            ["Total Assigned:", str(summary['total_assigned']), "Attended:", str(summary['total_attended'])],
+            ["Not Attended:", str(summary['total_not_attended']), "Attendance Rate:", f"{summary['attendance_percentage']}%"],
+            ["In Progress:", str(summary['total_in_progress']), "Submitted:", str(summary['total_submitted'])],
+        ]
+        t_meta = Table(meta_data, colWidths=[110, 160, 110, 160])
+        t_meta.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F8FAFC')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0F172A')),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ]))
+        story.append(t_meta)
+        story.append(Spacer(1, 14))
+
+        if sections:
+            story.append(Paragraph("Section Breakdown", styles['Heading3']))
+            sec_table_data = [["Section", "Assigned", "Attended", "Not Attended", "In Progress", "Submitted", "Attendance %"]]
+            for sec in sections:
+                sec_table_data.append([
+                    sec['section_name'],
+                    str(sec['assigned']),
+                    str(sec['attended']),
+                    str(sec['not_attended']),
+                    str(sec['in_progress']),
+                    str(sec['submitted']),
+                    f"{sec['attendance_percentage']}%"
+                ])
+            t_sec = Table(sec_table_data, colWidths=[130, 65, 65, 75, 70, 65, 70])
+            t_sec.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E293B')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')]),
+            ]))
+            story.append(t_sec)
+            story.append(Spacer(1, 14))
+
+        story.append(Paragraph("Student Attendance Roster", styles['Heading3']))
+        roster_table_data = [["Student Name", "Roll No", "Section", "Attendance", "Attempt", "Started At"]]
+        for r in records[:100]:
+            roster_table_data.append([
+                r['student_name'][:24],
+                r['roll_number'] or 'N/A',
+                r['section'][:16],
+                r['attendance_status'],
+                r['attempt_status'],
+                r['started_at'][:19].replace('T', ' ') if r['started_at'] else 'N/A'
+            ])
+        t_roster = Table(roster_table_data, colWidths=[120, 75, 85, 75, 85, 100])
+        t_roster.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E293B')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')]),
+        ]))
+        story.append(t_roster)
+
+        doc.build(story)
+        output.seek(0)
+        return output
+

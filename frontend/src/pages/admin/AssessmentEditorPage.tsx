@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   createAssessment,
   getAssessmentDetail,
   updateAssessment,
   publishAssessment,
+  deleteAssessment,
   addQuestionToAssessment,
   removeQuestionFromAssessment,
 } from '../../api/assessments';
@@ -47,12 +48,25 @@ export const AssessmentEditorPage: React.FC = () => {
   const [endDatetime, setEndDatetime] = useState('');
   const [durationMinutes, setDurationMinutes] = useState<number>(60);
   const [totalPoints, setTotalPoints] = useState<number>(0);
+  const [passingPercentage, setPassingPercentage] = useState<number>(40);
   const [negativeMarkingEnabled, setNegativeMarkingEnabled] = useState(false);
   const [attemptLimit, setAttemptLimit] = useState<number>(1);
   const [randomizeQuestions, setRandomizeQuestions] = useState(false);
   const [randomizeOptions, setRandomizeOptions] = useState(false);
   const [resultVisibility, setResultVisibility] = useState<ResultVisibility>('AFTER_DEADLINE');
   const [audienceTotalEligible, setAudienceTotalEligible] = useState<number>(0);
+  const [targetSectionIds, setTargetSectionIds] = useState<string[]>([]);
+  const [targetStudentIds, setTargetStudentIds] = useState<string[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleAudienceValidationChange = useCallback((_isValid: boolean, count: number) => {
+    setAudienceTotalEligible(count);
+  }, []);
+
+  const handleAudienceSelectionChange = useCallback((secIds: string[], stuIds: string[]) => {
+    setTargetSectionIds(secIds);
+    setTargetStudentIds(stuIds);
+  }, []);
 
   // Question Picker state
   const [isQuestionPickerOpen, setIsQuestionPickerOpen] = useState(false);
@@ -102,6 +116,9 @@ export const AssessmentEditorPage: React.FC = () => {
         setEndDatetime(formatForDateTimeLocal(new Date(d.end_datetime)));
         setDurationMinutes(d.duration_minutes);
         setTotalPoints(d.total_points);
+        if (d.passing_percentage !== undefined && d.passing_percentage !== null) {
+          setPassingPercentage(Number(d.passing_percentage));
+        }
         setNegativeMarkingEnabled(d.negative_marking_enabled);
         setAttemptLimit(d.attempt_limit);
         setRandomizeQuestions(d.randomize_questions);
@@ -115,16 +132,16 @@ export const AssessmentEditorPage: React.FC = () => {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (isAutoSave: boolean = false): Promise<boolean> => {
     setErrorMessage(null);
-    setSuccessMessage(null);
+    if (!isAutoSave) setSuccessMessage(null);
 
     const trimmedTitle = title.trim();
     const trimmedDesc = description.trim();
 
     if (!trimmedTitle) {
       setErrorMessage('Assessment title cannot be empty.');
-      return;
+      return false;
     }
 
     const startDate = new Date(startDatetime);
@@ -132,24 +149,24 @@ export const AssessmentEditorPage: React.FC = () => {
 
     if (isNaN(startDate.getTime())) {
       setErrorMessage('Please provide a valid start datetime.');
-      return;
+      return false;
     }
     if (isNaN(endDate.getTime())) {
       setErrorMessage('Please provide a valid end / deadline datetime.');
-      return;
+      return false;
     }
     if (endDate <= startDate) {
       setErrorMessage('End / Deadline datetime must be strictly after start datetime.');
-      return;
+      return false;
     }
     if (durationMinutes < 1) {
       setErrorMessage('Duration must be at least 1 minute.');
-      return;
+      return false;
     }
 
     setIsSaving(true);
 
-    const payload = {
+    const payload: any = {
       title: trimmedTitle,
       description: trimmedDesc,
       instructions: instructions.trim(),
@@ -157,6 +174,7 @@ export const AssessmentEditorPage: React.FC = () => {
       end_datetime: endDate.toISOString(),
       duration_minutes: durationMinutes,
       total_points: totalPoints,
+      passing_percentage: passingPercentage,
       negative_marking_enabled: negativeMarkingEnabled,
       attempt_limit: attemptLimit,
       randomize_questions: randomizeQuestions,
@@ -164,19 +182,29 @@ export const AssessmentEditorPage: React.FC = () => {
       result_visibility: resultVisibility,
     };
 
+    if (isEditing) {
+      payload.target_section_ids = targetSectionIds;
+      payload.target_student_ids = targetStudentIds;
+    }
+
     try {
       if (!isEditing) {
         const res = await createAssessment(payload);
         if (res.data) {
           navigate(`/admin/assessments/${res.data.id}`);
+          return true;
         }
       } else {
         const res = await updateAssessment(routeAssessmentId!, payload);
         if (res.data) {
           setAssessment(res.data);
-          setSuccessMessage('Assessment details updated successfully.');
+          if (!isAutoSave) {
+            setSuccessMessage('Assessment details updated successfully.');
+          }
+          return true;
         }
       }
+      return false;
     } catch (err: any) {
       const details = err.error?.details;
       let detailedMsg = err.error?.message;
@@ -185,6 +213,7 @@ export const AssessmentEditorPage: React.FC = () => {
         if (fieldMsgs.length > 0) detailedMsg = fieldMsgs.join(' | ');
       }
       setErrorMessage(detailedMsg || err.message || 'Failed to save assessment.');
+      return false;
     } finally {
       setIsSaving(false);
     }
@@ -193,6 +222,12 @@ export const AssessmentEditorPage: React.FC = () => {
   const handlePublish = async () => {
     if (!isEditing || !routeAssessmentId) return;
     if (!window.confirm('Are you sure you want to publish this assessment? Once published, the assessment and its question snapshot will become permanently IMMUTABLE.')) {
+      return;
+    }
+
+    // First ensure current unsaved draft state is persisted
+    const saved = await handleSave(true);
+    if (!saved) {
       return;
     }
 
@@ -215,6 +250,24 @@ export const AssessmentEditorPage: React.FC = () => {
       setErrorMessage(detailedMsg || err.message || 'Failed to publish assessment.');
     } finally {
       setIsPublishing(false);
+    }
+  };
+
+  const handleDeleteDraft = async () => {
+    if (!isEditing || !routeAssessmentId || isLocked) return;
+    if (!window.confirm('Are you sure you want to permanently delete this draft assessment? This action cannot be undone.')) {
+      return;
+    }
+
+    setIsDeleting(true);
+    setErrorMessage(null);
+    try {
+      await deleteAssessment(routeAssessmentId);
+      navigate('/admin/assessments');
+    } catch (err: any) {
+      setErrorMessage(err.error?.message || err.message || 'Failed to delete draft assessment.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -416,7 +469,7 @@ export const AssessmentEditorPage: React.FC = () => {
           </div>
 
           {/* Points & Attempts */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs pt-2">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs pt-2">
             <div className="space-y-1.5">
               <label className="block text-slate-700 font-semibold">Total Points (Must equal Question sum)</label>
               <input
@@ -426,6 +479,19 @@ export const AssessmentEditorPage: React.FC = () => {
                 value={totalPoints}
                 onChange={(e) => setTotalPoints(parseInt(e.target.value, 10) || 0)}
                 className="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-emerald-700 font-bold font-mono focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-slate-700 font-semibold">Passing Score (%)</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                disabled={isLocked}
+                value={passingPercentage}
+                onChange={(e) => setPassingPercentage(parseFloat(e.target.value) || 0)}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-900 font-mono focus:ring-2 focus:ring-emerald-500"
               />
             </div>
 
@@ -505,7 +571,8 @@ export const AssessmentEditorPage: React.FC = () => {
         <AssessmentAudiencePanel
           assessmentId={routeAssessmentId || null}
           isLocked={isLocked}
-          onValidationChange={(_isValid, count) => setAudienceTotalEligible(count)}
+          onValidationChange={handleAudienceValidationChange}
+          onSelectionChange={handleAudienceSelectionChange}
         />
       )}
 
@@ -590,9 +657,25 @@ export const AssessmentEditorPage: React.FC = () => {
 
       {/* Action Bar */}
       <div className="flex items-center justify-between pt-4 border-t border-slate-200">
-        <Button variant="ghost" size="md" onClick={() => navigate('/admin/assessments')}>
-          Cancel
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="md" onClick={() => navigate('/admin/assessments')}>
+            Cancel
+          </Button>
+
+          {!isLocked && isEditing && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="md"
+              onClick={handleDeleteDraft}
+              isLoading={isDeleting}
+              className="text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+            >
+              <Trash2 className="w-4 h-4 mr-1.5" />
+              Delete Draft
+            </Button>
+          )}
+        </div>
 
         <div className="flex items-center gap-3">
           {!isLocked && (
@@ -600,7 +683,7 @@ export const AssessmentEditorPage: React.FC = () => {
               type="button"
               variant="secondary"
               size="md"
-              onClick={handleSave}
+              onClick={() => handleSave(false)}
               isLoading={isSaving}
             >
               <Save className="w-4 h-4 mr-2" />

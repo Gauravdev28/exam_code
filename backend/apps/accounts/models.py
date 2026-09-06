@@ -182,7 +182,7 @@ class User(AbstractBaseUser, PermissionsMixin, UUIDModel, TimeStampedModel):
         # 4. Update Immutability Lifecycle (not self._state.adding and self.pk)
         if not self._state.adding and self.pk:
             existing = User.objects.filter(pk=self.pk).values(
-                'id', 'email', 'admin_id', 'display_name', 'role', 'primary_admin_marker', 'is_active'
+                'id', 'email', 'admin_id', 'display_name', 'role', 'primary_admin_marker', 'is_active', 'password'
             ).first()
 
             if existing:
@@ -206,6 +206,23 @@ class User(AbstractBaseUser, PermissionsMixin, UUIDModel, TimeStampedModel):
                 # Non-Admin Promotion Protection
                 if existing['role'] != Role.ADMIN and self.primary_admin_marker == 'PRIMARY':
                     raise PermissionDenied("Non-administrator account cannot be designated as Primary Administrator.")
+
+                # Password Integrity & Immutability Invariant:
+                # Normal user updates must never mutate existing password hash.
+                # Only explicit set_password() (which sets instance._password) or explicit 'password' in update_fields may alter it.
+                update_fields = kwargs.get('update_fields')
+                if update_fields is not None:
+                    if 'password' not in update_fields:
+                        self.password = existing['password']
+                else:
+                    if not getattr(self, '_password', None) and existing.get('password'):
+                        self.password = existing['password']
+
+        # 5. Prevent Saving Plaintext Passwords / Prevent Double Hashing
+        # If a raw password string without algorithm identifier is assigned, securely hash it.
+        if self.password and not self.password.startswith('!') and '$' not in self.password:
+            from django.contrib.auth.hashers import make_password
+            self.password = make_password(self.password)
 
         super().save(*args, **kwargs)
 

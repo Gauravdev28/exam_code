@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { fetchStudentSelfProfile, changeUserPassword } from '../../api/students';
+import { getStudentAssessments } from '../../api/assessments';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -8,11 +10,17 @@ import {
   KeyRound,
   AlertCircle,
   CheckCircle2,
+  FileText,
+  Clock,
+  Calendar,
+  Play,
 } from 'lucide-react';
 import { StudentProfile } from '../../types/student';
+import { StudentAssessmentItem } from '../../types/assessment';
 
 export const StudentProfilePage: React.FC = () => {
   const [profile, setProfile] = useState<StudentProfile | null>(null);
+  const [assignedAssessments, setAssignedAssessments] = useState<StudentAssessmentItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -22,11 +30,17 @@ export const StudentProfilePage: React.FC = () => {
   const [passSuccess, setPassSuccess] = useState<string | null>(null);
 
   useEffect(() => {
-    const loadProfile = async () => {
+    const loadData = async () => {
       try {
-        const res = await fetchStudentSelfProfile();
-        if (res.data) {
-          setProfile(res.data);
+        const [profileRes, assessmentsRes] = await Promise.all([
+          fetchStudentSelfProfile(),
+          getStudentAssessments().catch(() => ({ data: [] })),
+        ]);
+        if (profileRes.data) {
+          setProfile(profileRes.data);
+        }
+        if (assessmentsRes.data) {
+          setAssignedAssessments(assessmentsRes.data);
         }
       } catch (err: any) {
         console.error("Failed to load student profile:", err);
@@ -34,7 +48,7 @@ export const StudentProfilePage: React.FC = () => {
         setIsLoading(false);
       }
     };
-    loadProfile();
+    loadData();
   }, []);
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -199,6 +213,56 @@ export const StudentProfilePage: React.FC = () => {
           </form>
         </Card>
       </div>
+
+      {/* Authoritative Assigned Assessments Section */}
+      <Card className="p-6 space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <FileText className="w-5 h-5 text-indigo-400" />
+            <h3 className="text-base font-bold text-white">Assigned Technical Assessments</h3>
+          </div>
+          <Badge variant="purple" size="sm">
+            {assignedAssessments.length} Active {assignedAssessments.length === 1 ? 'Evaluation' : 'Evaluations'}
+          </Badge>
+        </div>
+
+        {assignedAssessments.length === 0 ? (
+          <div className="py-8 text-center text-xs text-slate-500 font-mono">
+            No published assessments currently assigned to your account.
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-800/60 font-mono text-xs">
+            {assignedAssessments.map((a) => (
+              <div key={a.id} className="py-3.5 flex flex-wrap items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="font-sans font-bold text-white text-sm">{a.title}</div>
+                  <div className="flex items-center gap-3 text-slate-400">
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-amber-400" /> {a.duration_minutes}m
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-3.5 h-3.5 text-emerald-400" /> {new Date(a.start_datetime).toLocaleDateString()} - {new Date(a.end_datetime).toLocaleDateString()}
+                    </span>
+                    <span className="text-slate-400">Attempts: {a.attempts_used} / {a.attempt_limit}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <Badge variant={a.is_eligible ? 'success' : 'neutral'} size="sm">
+                    {a.is_eligible ? 'ELIGIBLE' : 'LIMIT REACHED'}
+                  </Badge>
+                  <Link to="/student/assessments">
+                    <Button variant="secondary" size="sm">
+                      <Play className="w-3.5 h-3.5 mr-1 text-emerald-400" />
+                      Take Assessment
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
     </div>
   );
 };
