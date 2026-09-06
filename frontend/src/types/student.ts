@@ -4,6 +4,8 @@ export interface StudentProfile {
   id: string;
   user_id: string;
   email: string;
+  first_name?: string;
+  last_name?: string;
   role: string;
   roll_number: string;
   euid: string;
@@ -16,6 +18,8 @@ export interface StudentProfile {
 
 export interface CreateStudentPayload {
   email: string;
+  first_name?: string;
+  last_name?: string;
   roll_number: string;
   section_id?: string | null;
   section?: string | null;

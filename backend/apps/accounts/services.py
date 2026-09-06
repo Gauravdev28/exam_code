@@ -271,12 +271,20 @@ class StudentService:
     def create_student(
         email: str,
         roll_number: str,
+        first_name: str = "",
+        last_name: str = "",
+        display_name: str = "",
         section: Optional[Section] = None,
         actor: Optional[User] = None,
         request=None
     ) -> Tuple[User, StudentProfile]:
         clean_email = email.strip().lower()
         clean_roll = EUIDService.normalize_roll_number(roll_number)
+
+        clean_disp = display_name.strip() if display_name else f"{first_name} {last_name}".strip()
+        if not clean_disp:
+            prefix = clean_email.split('@')[0]
+            clean_disp = ''.join(c if c.isalpha() else ' ' for c in prefix).strip().title() or "Student"
 
         if section is not None and not section.is_active:
             raise DRFValidationError({"section": f"Cannot assign inactive section '{section.code}'."})
@@ -301,6 +309,7 @@ class StudentService:
                     email=clean_email,
                     password=clean_roll,
                     role=Role.STUDENT,
+                    display_name=clean_disp,
                     is_active=True,
                     first_login_required=True
                 )

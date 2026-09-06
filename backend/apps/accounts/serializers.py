@@ -329,6 +329,9 @@ class CreateStudentSerializer(serializers.Serializer):
     """
     email = serializers.EmailField(required=True)
     roll_number = serializers.CharField(required=True, max_length=64)
+    first_name = serializers.CharField(required=False, allow_blank=True, default="")
+    last_name = serializers.CharField(required=False, allow_blank=True, default="")
+    display_name = serializers.CharField(required=False, allow_blank=True, default="")
     section_id = serializers.UUIDField(required=False, allow_null=True, default=None)
 
 

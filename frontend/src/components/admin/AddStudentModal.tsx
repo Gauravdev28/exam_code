@@ -19,6 +19,8 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
   onSuccess,
 }) => {
   const [email, setEmail] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [rollNumber, setRollNumber] = useState('');
   const [sectionId, setSectionId] = useState('');
   const [sections, setSections] = useState<Section[]>([]);
@@ -58,6 +60,8 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
       const res = await createStudent({
         email: email.trim(),
         roll_number: rollNumber.trim(),
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
         section_id: sectionId ? sectionId : null,
       });
       if (res.data) {
@@ -129,6 +133,33 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-800">
+                    First Name
+                  </label>
+                  <input
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    placeholder="e.g. Gaurav"
+                    className="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-900 placeholder:text-slate-500 text-xs focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-medium"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-800">
+                    Last Name
+                  </label>
+                  <input
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    placeholder="e.g. Agarwal"
+                    className="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-900 placeholder:text-slate-500 text-xs focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-medium"
+                  />
+                </div>
+              </div>
+
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-800">
                   Academic Roll Number / Registration ID

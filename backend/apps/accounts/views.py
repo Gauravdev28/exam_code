@@ -280,6 +280,9 @@ class AdminStudentListView(APIView):
         user, profile = StudentService.create_student(
             email=serializer.validated_data['email'],
             roll_number=serializer.validated_data['roll_number'],
+            first_name=serializer.validated_data.get('first_name', ''),
+            last_name=serializer.validated_data.get('last_name', ''),
+            display_name=serializer.validated_data.get('display_name', ''),
             section=sec_obj,
             actor=request.user,
             request=request
