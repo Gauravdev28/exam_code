@@ -126,8 +126,11 @@ class User(AbstractBaseUser, PermissionsMixin, UUIDModel, TimeStampedModel):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=['admin_id'],
-                condition=models.Q(role=Role.ADMIN) & ~models.Q(admin_id=''),
+                models.Case(
+                    models.When(models.Q(role=Role.ADMIN) & ~models.Q(admin_id=''), then=models.F('admin_id')),
+                    default=models.Value(None),
+                    output_field=models.CharField(max_length=64, null=True),
+                ),
                 name='unique_admin_id_for_admins'
             ),
             models.CheckConstraint(
