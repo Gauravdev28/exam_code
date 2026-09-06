@@ -698,8 +698,31 @@ class AssessmentService:
         target_student_ids: Optional[List[Any]] = None,
         request=None
     ) -> Assessment:
-        if assessment.status in [AssessmentStatus.PUBLISHED, AssessmentStatus.ARCHIVED]:
-            raise PermissionDenied("Cannot edit a published or archived assessment.")
+        if assessment.status == AssessmentStatus.ARCHIVED:
+            raise PermissionDenied("Cannot edit an archived assessment.")
+
+        is_published = (assessment.status == AssessmentStatus.PUBLISHED)
+        has_attempts = assessment.attempts.exists() if is_published else False
+
+        if is_published:
+            if target_section_ids is not None or target_student_ids is not None:
+                # Compare with existing target sections/students before raising error
+                curr_sec = set(str(s.id) for s in assessment.target_sections.all())
+                curr_stu = set(str(s.id) for s in assessment.target_students.all())
+                req_sec = set(str(s) for s in target_section_ids) if target_section_ids is not None else curr_sec
+                req_stu = set(str(s) for s in target_student_ids) if target_student_ids is not None else curr_stu
+                if req_sec != curr_sec or req_stu != curr_stu:
+                    raise PermissionDenied("Published assessment target audience cannot be altered via draft editor. Use assignment management to manage individual access.")
+
+            if has_attempts:
+                if total_points is not None and total_points != assessment.total_points:
+                    raise PermissionDenied("Cannot modify total points for a published assessment with recorded student attempts.")
+                if passing_percentage is not None and passing_percentage != assessment.passing_percentage:
+                    raise PermissionDenied("Cannot modify passing percentage for a published assessment with recorded student attempts.")
+                if duration_minutes is not None and duration_minutes != assessment.duration_minutes:
+                    raise PermissionDenied("Cannot modify duration for a published assessment with recorded student attempts.")
+                if attempt_limit is not None and attempt_limit != assessment.attempt_limit:
+                    raise PermissionDenied("Cannot modify attempt limit for a published assessment with recorded student attempts.")
 
         if title is not None:
             assessment.title = title.strip()
@@ -708,6 +731,8 @@ class AssessmentService:
         if instructions is not None:
             assessment.instructions = instructions.strip()
         if start_datetime is not None:
+            if is_published and has_attempts and start_datetime != assessment.start_datetime:
+                raise PermissionDenied("Cannot modify start datetime after students have started taking the assessment.")
             assessment.start_datetime = start_datetime
         if end_datetime is not None:
             assessment.end_datetime = end_datetime
@@ -737,8 +762,8 @@ class AssessmentService:
 
         assessment.save()
 
-        # Atomic draft audience persistence if audience is supplied
-        if target_section_ids is not None or target_student_ids is not None:
+        # Atomic audience persistence for DRAFT assessments if audience is supplied
+        if not is_published and (target_section_ids is not None or target_student_ids is not None):
             sec_ids = target_section_ids if target_section_ids is not None else list(assessment.target_sections.values_list('id', flat=True))
             stu_ids = target_student_ids if target_student_ids is not None else list(assessment.target_students.values_list('id', flat=True))
             AssessmentAudienceService.configure_audience(
