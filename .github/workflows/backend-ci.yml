@@ -54,6 +54,34 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
 
+      - name: Configure MySQL Test Database Privileges
+        run: |
+          python - << 'EOF'
+          import pymysql
+          import time
+
+          for attempt in range(10):
+              try:
+                  conn = pymysql.connect(
+                      host='127.0.0.1',
+                      port=3306,
+                      user='root',
+                      password='root_secure_password',
+                      connect_timeout=5
+                  )
+                  with conn.cursor() as cur:
+                      cur.execute("GRANT ALL PRIVILEGES ON `test_%`.* TO 'codeguard_user'@'%';")
+                      cur.execute("FLUSH PRIVILEGES;")
+                  conn.close()
+                  print("Successfully granted test_% database privileges to codeguard_user")
+                  break
+              except Exception as e:
+                  if attempt == 9:
+                      raise
+                  print(f"Waiting for MySQL to be ready... ({e})")
+                  time.sleep(2)
+          EOF
+
       - name: Run Pytest Suite
         env:
           DJANGO_SETTINGS_MODULE: codeguard.settings.test
