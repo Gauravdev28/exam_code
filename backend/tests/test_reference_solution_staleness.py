@@ -7,6 +7,7 @@ from apps.evaluator.models import CodeVerdict, TestCaseVerdict
 from apps.evaluator.serializers import StudentTestCaseResultSerializer
 from apps.questions.models import (
     CodingLanguage,
+    CodingQuestionConfig,
     Difficulty,
     Question,
     QuestionStatus,
@@ -298,3 +299,234 @@ class TestReferenceSolutionStaleness:
         assert serializer_hid["expected_output"] is None
         assert serializer_hid["actual_output"] is None
         assert serializer_hid["is_hidden"] is True
+
+
+@pytest.mark.django_db
+class TestReferenceSolutionLanguageHandling:
+    """
+    Comprehensive regression test suite for reference-solution language handling:
+    1. Lookup with mixed case (Python, python, PYTHON)
+    2. Lookup with whitespace ('  python  ')
+    3. Missing language returns empty string
+    4. Non-dict reference_solutions safely handled
+    5. reference_solution_language stored in canonical form (trimmed uppercase)
+    6. Hashing stays identical regardless of lookup case
+    7. Modifying reference code with different language casing still invalidates verification
+    8. Modifying language to equivalent canonical form does NOT falsely invalidate verification
+    9. Modifying language to genuinely different language DOES invalidate verification
+    10. Verified test cases are invalidated whenever reference verification is invalidated
+    11. Question health reflects staleness correctly across case variations
+    """
+
+    @pytest.fixture
+    def admin_user(self):
+        return User.objects.create_user(
+            email="admin_lang@codeguard.test",
+            role=Role.ADMIN,
+            is_active=True,
+        )
+
+    def test_1_lookup_with_mixed_case_and_whitespace(self):
+        # Case A: Keys stored as canonical uppercase
+        sol_canonical = {"PYTHON": "print('hello')", "CPP": "#include <iostream>"}
+        assert CodingQuestionConfig.get_code_for_language(sol_canonical, "python") == "print('hello')"
+        assert CodingQuestionConfig.get_code_for_language(sol_canonical, "Python") == "print('hello')"
+        assert CodingQuestionConfig.get_code_for_language(sol_canonical, "PYTHON") == "print('hello')"
+        assert CodingQuestionConfig.get_code_for_language(sol_canonical, "  python  ") == "print('hello')"
+        assert CodingQuestionConfig.get_code_for_language(sol_canonical, "  CPP\n") == "#include <iostream>"
+
+        # Case B: Keys stored with lowercase or whitespace in dict
+        sol_sloppy = {" python ": "print('sloppy')", "cPp": "int main() {}"}
+        assert CodingQuestionConfig.get_code_for_language(sol_sloppy, "PYTHON") == "print('sloppy')"
+        assert CodingQuestionConfig.get_code_for_language(sol_sloppy, "python") == "print('sloppy')"
+        assert CodingQuestionConfig.get_code_for_language(sol_sloppy, "cpp") == "int main() {}"
+
+    def test_2_missing_language_returns_empty_string(self):
+        sol = {"PYTHON": "print('hello')"}
+        assert CodingQuestionConfig.get_code_for_language(sol, "JAVA") == ""
+        assert CodingQuestionConfig.get_code_for_language(sol, "") == ""
+        assert CodingQuestionConfig.get_code_for_language(sol, "   ") == ""
+        assert CodingQuestionConfig.get_code_for_language(sol, None) == ""
+        assert CodingQuestionConfig.get_code_for_language({}, "PYTHON") == ""
+
+    def test_3_non_dict_reference_solutions_safely_handled(self):
+        assert CodingQuestionConfig.get_code_for_language(None, "PYTHON") == ""
+        assert CodingQuestionConfig.get_code_for_language("not a dict", "PYTHON") == ""
+        assert CodingQuestionConfig.get_code_for_language(["PYTHON"], "PYTHON") == ""
+        assert CodingQuestionConfig.get_code_for_language(12345, "PYTHON") == ""
+
+    def test_4_reference_solution_language_stored_in_canonical_form(self, admin_user):
+        q, v = QuestionService.create_question(
+            question_type=QuestionType.CODING,
+            title="Canonical Lang Question",
+            description="Test canonical language",
+            difficulty=Difficulty.EASY,
+            actor=admin_user,
+            coding_config_data={
+                "problem_statement": "Print hi",
+                "allowed_languages": ["PYTHON"],
+                "reference_solutions": {"PYTHON": "print('hi')"},
+                "reference_solution_language": "  python  ",
+            },
+        )
+        conf = v.coding_config
+        assert conf.reference_solution_language == "PYTHON"
+
+        # Updating via mark_reference_solution_verified
+        conf.mark_reference_solution_verified("  python  ", "print('hi')")
+        conf.save()
+        conf.refresh_from_db()
+        assert conf.reference_solution_language == "PYTHON"
+
+    def test_5_hashing_stays_identical_regardless_of_lookup_case(self):
+        code = "print(42)"
+        h1 = CodingQuestionConfig.compute_reference_hash(code, "PYTHON")
+        h2 = CodingQuestionConfig.compute_reference_hash(code, "python")
+        h3 = CodingQuestionConfig.compute_reference_hash(code, "  Python  ")
+        assert h1 == h2 == h3
+        assert len(h1) == 64
+
+        # Empty code or lang returns empty string
+        assert CodingQuestionConfig.compute_reference_hash("", "PYTHON") == ""
+        assert CodingQuestionConfig.compute_reference_hash(code, "") == ""
+        assert CodingQuestionConfig.compute_reference_hash(None, "PYTHON") == ""
+        assert CodingQuestionConfig.compute_reference_hash(code, None) == ""
+
+    def test_6_modifying_reference_code_with_different_language_casing_invalidates_verification(self, admin_user):
+        code = "print(sum([1, 2]))"
+        q, v = QuestionService.create_question(
+            question_type=QuestionType.CODING,
+            title="Staleness Test",
+            description="Testing staleness detection",
+            difficulty=Difficulty.EASY,
+            actor=admin_user,
+            coding_config_data={
+                "problem_statement": "Compute sum",
+                "allowed_languages": ["PYTHON"],
+                "reference_solutions": {"PYTHON": code},
+                "reference_solution_language": "PYTHON",
+            },
+            test_cases_data=[
+                {"name": "TC1", "input_data": "1", "expected_output": "3", "points": 5, "is_verified": True},
+                {"name": "TC2", "input_data": "2", "expected_output": "3", "points": 5, "is_verified": True},
+            ],
+        )
+        conf = v.coding_config
+        conf.mark_reference_solution_verified("PYTHON", code)
+        conf.save()
+
+        assert conf.reference_solution_verified is True
+        assert conf.test_cases.filter(is_verified=True).count() == 2
+
+        # Modify code using lowercase key in dictionary
+        conf.reference_solutions = {"python": "print('modified code')"}
+        conf.save()
+        conf.refresh_from_db()
+
+        assert conf.reference_solution_verified is False
+        assert conf.reference_solution_verified_at is None
+        # Invariant: associated verified test cases invalidated
+        assert conf.test_cases.filter(is_verified=True).count() == 0
+
+    def test_7_modifying_language_to_equivalent_canonical_form_does_not_falsely_invalidate(self, admin_user):
+        code = "print('constant')"
+        q, v = QuestionService.create_question(
+            question_type=QuestionType.CODING,
+            title="No False Invalidation Test",
+            description="Testing equivalent language change",
+            difficulty=Difficulty.EASY,
+            actor=admin_user,
+            coding_config_data={
+                "problem_statement": "Statement",
+                "allowed_languages": ["PYTHON"],
+                "reference_solutions": {"PYTHON": code},
+                "reference_solution_language": "PYTHON",
+            },
+            test_cases_data=[
+                {"name": "TC1", "input_data": "1", "expected_output": "1", "points": 5, "is_verified": True},
+            ],
+        )
+        conf = v.coding_config
+        conf.mark_reference_solution_verified("PYTHON", code)
+        conf.save()
+        assert conf.reference_solution_verified is True
+
+        # Change language to lowercase with surrounding whitespace
+        conf.reference_solution_language = "  python  "
+        conf.save()
+        conf.refresh_from_db()
+
+        # Should NOT be invalidated because normalized language is still 'PYTHON' and code is untouched
+        assert conf.reference_solution_verified is True
+        assert conf.reference_solution_language == "PYTHON"
+        assert conf.test_cases.filter(is_verified=True).count() == 1
+
+    def test_8_modifying_language_to_genuinely_different_language_invalidates_verification(self, admin_user):
+        code = "print('python')"
+        q, v = QuestionService.create_question(
+            question_type=QuestionType.CODING,
+            title="Diff Lang Invalidation",
+            description="Testing diff language change",
+            difficulty=Difficulty.EASY,
+            actor=admin_user,
+            coding_config_data={
+                "problem_statement": "Statement",
+                "allowed_languages": ["PYTHON", "CPP"],
+                "reference_solutions": {"PYTHON": code, "CPP": "cout << 1;"},
+                "reference_solution_language": "PYTHON",
+            },
+            test_cases_data=[
+                {"name": "TC1", "input_data": "1", "expected_output": "1", "points": 5, "is_verified": True},
+            ],
+        )
+        conf = v.coding_config
+        conf.mark_reference_solution_verified("PYTHON", code)
+        conf.save()
+        assert conf.reference_solution_verified is True
+
+        # Switch reference language to CPP
+        conf.reference_solution_language = "CPP"
+        conf.save()
+        conf.refresh_from_db()
+
+        assert conf.reference_solution_verified is False
+        assert conf.test_cases.filter(is_verified=True).count() == 0
+
+    def test_9_question_health_reflects_staleness_correctly_across_case_variations(self, admin_user):
+        code = "print('health test')"
+        q, v = QuestionService.create_question(
+            question_type=QuestionType.CODING,
+            title="Health Staleness Case Test",
+            description="Desc",
+            difficulty=Difficulty.EASY,
+            actor=admin_user,
+            coding_config_data={
+                "problem_statement": "Desc",
+                "allowed_languages": ["PYTHON"],
+                "starter_codes": {"PYTHON": "# code"},
+                "examples": [{"input": "1", "output": "1"}],
+                "reference_solutions": {"PYTHON": code},
+                "reference_solution_language": "python",
+            },
+            test_cases_data=[
+                {"name": "TC1", "input_data": "1", "expected_output": "1", "points": 5, "is_verified": True, "is_hidden": False},
+                {"name": "TC2", "input_data": "2", "expected_output": "2", "points": 5, "is_verified": True, "is_hidden": True},
+            ],
+        )
+        conf = v.coding_config
+        conf.mark_reference_solution_verified("Python", code)
+        conf.save()
+
+        # Check health: ready
+        status = CodingQuestionValidationService.get_health_status(v)
+        assert status["is_ready"] is True
+
+        # Invalidate via code change in lowercase key
+        conf.reference_solutions = {"python": "print('stale')"}
+        conf.save()
+        conf.refresh_from_db()
+
+        status_stale = CodingQuestionValidationService.get_health_status(v)
+        assert status_stale["is_ready"] is False
+        assert any(c["key"] == "expected_output_verification" and not c["passed"] for c in status_stale["checks"])
+

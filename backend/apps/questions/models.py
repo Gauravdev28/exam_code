@@ -260,42 +260,81 @@ class CodingQuestionConfig(UUIDModel, TimeStampedModel):
         return f"CodingConfig for {self.question_version}"
 
     @classmethod
-    def get_code_for_language(cls, solutions_dict: dict, language: str) -> str:
-        if not isinstance(solutions_dict, dict) or not language:
+    def normalize_language(cls, language: str) -> str:
+        """
+        Return the canonical trimmed uppercase representation of a language name.
+        """
+        if not language or not isinstance(language, (str, bytes)):
             return ""
-        if language in solutions_dict:
-            return solutions_dict[language]
-        lang_upper = str(language).strip().upper()
+        return str(language).strip().upper()
+
+    @classmethod
+    def get_code_for_language(cls, solutions_dict: dict, language: str) -> str:
+        """
+        Safely retrieve reference code for a given language, tolerating case and whitespace variations.
+        Handles non-dictionary solutions_dict, empty/None values, and missing languages gracefully.
+        """
+        if not isinstance(solutions_dict, dict):
+            return ""
+        norm_lang = cls.normalize_language(language)
+        if not norm_lang:
+            return ""
+        # Direct lookup if key already matches normalized form
+        if norm_lang in solutions_dict:
+            val = solutions_dict[norm_lang]
+            return str(val) if val is not None else ""
+        # Case-insensitive and whitespace-tolerant scan
         for k, v in solutions_dict.items():
-            if str(k).strip().upper() == lang_upper:
-                return v
+            if cls.normalize_language(k) == norm_lang:
+                return str(v) if v is not None else ""
         return ""
 
-    @staticmethod
-    def compute_reference_hash(code: str, language: str) -> str:
+    @classmethod
+    def compute_reference_hash(cls, code: str, language: str) -> str:
+        """
+        Deterministically compute a SHA-256 hash of normalized language and code.
+        Returns empty string if code or language is empty.
+        """
         import hashlib
         if not code or not language:
             return ""
         norm_code = str(code).replace('\r\n', '\n').strip()
-        norm_lang = str(language).strip().upper()
+        norm_lang = cls.normalize_language(language)
+        if not norm_code or not norm_lang:
+            return ""
         return hashlib.sha256(f"{norm_lang}:{norm_code}".encode('utf-8')).hexdigest()
 
     def get_current_reference_hash(self) -> str:
+        """
+        Compute hash for the currently configured reference solution.
+        """
         lang = self.reference_solution_language
-        if not lang and self.reference_solutions and isinstance(self.reference_solutions, dict):
-            lang = next(iter(self.reference_solutions.keys()))
+        if not self.normalize_language(lang) and self.reference_solutions and isinstance(self.reference_solutions, dict):
+            for k in self.reference_solutions.keys():
+                norm_k = self.normalize_language(k)
+                if norm_k:
+                    lang = norm_k
+                    break
         code = self.get_code_for_language(self.reference_solutions, lang)
         return self.compute_reference_hash(code, lang)
 
     def is_reference_solution_current(self) -> bool:
+        """
+        Returns True only if verified and current reference solution hash matches stored hash.
+        """
         if not self.reference_solution_verified or not self.reference_solution_hash:
             return False
-        return self.get_current_reference_hash() == self.reference_solution_hash
+        curr_hash = self.get_current_reference_hash()
+        return bool(curr_hash) and curr_hash == self.reference_solution_hash
 
     def mark_reference_solution_verified(self, language: str, code: str):
+        """
+        Store canonical reference solution verification metadata.
+        """
         from django.utils import timezone
-        self.reference_solution_language = str(language).strip().upper()
-        self.reference_solution_hash = self.compute_reference_hash(code, language)
+        norm_lang = self.normalize_language(language)
+        self.reference_solution_language = norm_lang
+        self.reference_solution_hash = self.compute_reference_hash(code, norm_lang)
         self.reference_solution_verified = True
         self.reference_solution_verified_at = timezone.now()
 
@@ -303,24 +342,46 @@ class CodingQuestionConfig(UUIDModel, TimeStampedModel):
         if not self._state.adding and self.pk:
             if self.question_version.status in [VersionStatus.PUBLISHED, VersionStatus.ARCHIVED]:
                 raise PermissionDenied("Coding configuration belonging to a published/archived version is immutable.")
-            
+
+            # Canonicalize reference_solution_language if set
+            if self.reference_solution_language:
+                self.reference_solution_language = self.normalize_language(self.reference_solution_language)
+
             # Detect reference solution source or language changes to invalidate verification
             old = CodingQuestionConfig.objects.filter(pk=self.pk).values(
                 'reference_solutions', 'reference_solution_language', 'reference_solution_hash', 'reference_solution_verified'
             ).first()
             if old and old['reference_solution_verified']:
-                old_ref_solutions = old['reference_solutions'] or {}
-                old_ref_lang = old['reference_solution_language'] or ""
-                curr_code = self.get_code_for_language(self.reference_solutions, self.reference_solution_language)
-                old_code = self.get_code_for_language(old_ref_solutions, old_ref_lang)
+                old_ref_solutions = old['reference_solutions'] if isinstance(old['reference_solutions'], dict) else {}
+                old_ref_lang = self.normalize_language(old['reference_solution_language'])
+                curr_ref_lang = self.normalize_language(self.reference_solution_language)
 
-                curr_hash = self.compute_reference_hash(curr_code, self.reference_solution_language)
-                if curr_hash != old['reference_solution_hash'] or str(self.reference_solution_language).strip().upper() != str(old_ref_lang).strip().upper():
+                # If language was unset, attempt resolution from dictionary
+                if not curr_ref_lang and isinstance(self.reference_solutions, dict):
+                    for k in self.reference_solutions.keys():
+                        norm_k = self.normalize_language(k)
+                        if norm_k:
+                            curr_ref_lang = norm_k
+                            break
+
+                curr_code = self.get_code_for_language(self.reference_solutions, curr_ref_lang or self.reference_solution_language)
+                curr_hash = self.compute_reference_hash(curr_code, curr_ref_lang)
+
+                is_stale = False
+                if not curr_hash or curr_hash != old['reference_solution_hash']:
+                    is_stale = True
+                elif curr_ref_lang != old_ref_lang:
+                    is_stale = True
+
+                if is_stale:
                     # Invalidate reference solution verification
                     self.reference_solution_verified = False
                     self.reference_solution_verified_at = None
                     # Invalidate all associated verified test cases
                     self.test_cases.filter(is_verified=True).update(is_verified=False)
+        else:
+            if self.reference_solution_language:
+                self.reference_solution_language = self.normalize_language(self.reference_solution_language)
 
         super().save(*args, **kwargs)
 
